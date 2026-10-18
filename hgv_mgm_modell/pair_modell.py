@@ -55,7 +55,7 @@ Rueckrechnung und Protokoll rechnen drei Profile, jedes als eigenes Konto:
 
 Kelly-Formel und Stresstest
 ---------------------------
-Optimaler Hebel f = mittlere Rendite / Varianz der Rendite (Chan, Kapitel 6), berechnet NUR aus der Trainingsphase
+Optimaler Hebel f = mittlere Rendite / Varianz der Rendite, berechnet NUR aus der Trainingsphase
 des Korbs (im Protokoll: aus den TRAIN_YEARS Jahren vor dem Starttag, festgehalten in hebel.json). Weil sich die
 Paare gegenseitig ausgleichen, schwankt der Korb wenig, und die Formel liefert sehr hohe Hebel; sie unterstellt
 normalverteilte Renditen und bekannte Kennzahlen. Der Stresstest der Rueckrechnung rechnet das Konto mit einer
@@ -106,9 +106,9 @@ import numpy as np
 import pandas as pd
 
 # ======================================================================================================
-# EINSTELLUNGEN - hier anpassen
+# EINSTELLUNGEN
 # ======================================================================================================
-# Die 15 besten Paare aus pair_screener/output_us_aktien/mr_paare.csv (Rangliste vom 04.10.2026).
+# Die 15 besten Paare aus pair_screener/output_us_aktien/mr_paare.csv (Rangliste vom 04.10.2026). Zu späteren Zeitpunkten muss entsprechend ein eigener Test auf potenziell cointegrierte Paare mit dem pair_screener durchgeführt werden. 
 # Die Liste ist bewusst fest eingetragen: Sie soll sich waehrend des Paper Tradings nicht aendern.
 PAIRS = [
     ("HGV", "MGM"),     # Resorts & Casinos
