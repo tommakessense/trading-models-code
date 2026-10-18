@@ -1,0 +1,9 @@
+pandas>=3.0
+numpy>=2.4
+yfinance>=1.7
+pyarrow
+requests
+statsmodels
+joblib
+scikit-learn
+matplotlib

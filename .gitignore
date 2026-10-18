@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+# Kurse, Zwischenspeicher und Ergebnisse entstehen beim Ausfuehren
+*/daten/
+*/daten_start/
+*/cache/
+*/output*/
+*/ergebnisse*/
+*/protokoll/
+trend_modell/suchbegriffe.csv
