@@ -1,34 +1,34 @@
 """
-Ausfuehrungszeitpunkt fuer das Trendmodell: Schlussauktion oder Eroeffnung?
+Execution time for the trend model: closing auction or opening?
 ================================================================================================================
 
-Bisher: Signal am Schlusskurs von Tag t (erst nach Handelsschluss bekannt), Kauf am Schlusskurs von Tag t+1
-(Xetra-Schlussauktion). Dieser Kurs ist real handelbar, es wird also kein veralteter Kurs verwendet - aber
-zwischen Signal und Kauf liegen eine Nacht und ein ganzer Handelstag.
+So far: signal at the closing price of day t (known only after the close of trading), purchase at the closing price of day t+1
+(Xetra closing auction). This price is really tradable, so no stale price is used - but
+between signal and purchase there is a night and a whole trading day.
 
-Verglichene Ausfuehrungen (jeweils fuer Kauf UND Verkauf):
-  A  Schluss am Folgetag          wie bisher: Kauf/Verkauf in der Schlussauktion des naechsten Tages;
-                                  Stopps: Schlusskurs unter der Stopp-Linie -> Verkauf in derselben Schlussauktion
-  B  Eroeffnung am Folgetag       Kauf in der Eroeffnungsauktion von t+1 (9:00); Zeitausstieg ebenfalls zur
-                                  Eroeffnung; Stopp am Schlusskurs erkannt -> Verkauf zur naechsten Eroeffnung
-  B+ kurz nach Eroeffnung         wie B, aber fortlaufender Handel in den ersten Minuten auf EIX (bei Scalable
-                                  guenstigster Platz; breitere Spannen: hoehere Slippage, SLIP_NACH_EROEFFNUNG)
-  C  Eroeffnung + Stopp-Order     wie B, aber der nachgezogene Stopp liegt als echte Stopp-Order im Markt:
-                                  faellt der Tagestiefstkurs unter die Linie, Verkauf zur Linie (bei
-                                  Kurslucke nach unten zum - schlechteren - Eroeffnungskurs)
-  D  Schluss am Signaltag         Obergrenze: Signal kurz vor 17:30 mit dem fast fertigen Kurs berechnen und noch
-                                  in derselben Schlussauktion kaufen (keine Verzoegerung)
+Compared executions (each for purchase AND sale):
+  A  close on the next day        as before: purchase/sale in the closing auction of the next day;
+                                  stops: closing price below the stop line -> sale in the same closing auction
+  B  opening on the next day      purchase in the opening auction of t+1 (9:00); time exit also at the
+                                  opening; stop detected at the closing price -> sale at the next opening
+  B+ shortly after the opening    like B, but continuous trading in the first minutes on EIX (at Scalable the
+                                  cheapest venue; wider spreads: higher slippage, SLIP_NACH_EROEFFNUNG)
+  C  opening + stop order         like B, but the trailing stop is placed in the market as a real stop order:
+                                  if the intraday low falls below the line, sale at the line (with a
+                                  downward price gap at the - worse - opening price)
+  D  close on the signal day      upper bound: calculate the signal shortly before 17:30 with the almost final price and still
+                                  buy in the same closing auction (no delay)
 
-Zusaetzlich: Wie viel bewegen sich die Kurse nach einem Signal ueber Nacht (Schluss t -> Eroeffnung t+1) und
-tagsueber (Eroeffnung t+1 -> Schluss t+1)? Das entscheidet, ob frueheres Kaufen hilft.
+Additionally: How much do prices move after a signal overnight (close t -> opening t+1) and
+during the day (opening t+1 -> close t+1)? This decides whether buying earlier helps.
 
-Daten: Eroeffnungs-, Hoch- und Tiefkurse fehlen im Kurs-Cache des Screeners. Das Skript laedt sie beim ersten
-Lauf mit yfinance (wie der Screener, dividenden- und splitbereinigt) nach pair_screener/cache/ohlc_aktien.pkl
-und passt sie an die Schlusskurse des Caches an.
+Data: opening, high and low prices are missing in the price cache of the screener. On the first run the script
+loads them with yfinance (like the screener, adjusted for dividends and splits) into pair_screener/cache/ohlc_aktien.pkl
+and adjusts them to the closing prices of the cache.
 
-Aufruf (im Ordner trend_modell):  ..\\.venv\\python.exe trend_ausfuehrung.py           (erster Lauf: Download)
-                                  ..\\.venv\\python.exe trend_ausfuehrung.py --neu     Kurse neu laden
-Ergebnisse in ergebnisse_cpo/: ausfuehrung_vergleich.csv, ausfuehrung_nacht_tag.csv, ausfuehrung.png
+Usage (in the folder trend_model):  ..\\.venv\\python.exe trend_ausfuehrung.py           (first run: download)
+                                    ..\\.venv\\python.exe trend_ausfuehrung.py --neu     reload prices
+Results in ergebnisse_cpo/: ausfuehrung_vergleich.csv, ausfuehrung_nacht_tag.csv, ausfuehrung.png
 """
 from __future__ import annotations
 
@@ -40,24 +40,24 @@ import numpy as np
 import pandas as pd
 
 import trend_cpo as tc
-import trend_modell as tm
+import trend_model as tm
 
-# ======================================================================================= Einstellungen
+# ======================================================================================= Settings
 OHLC_FILE = tm.SCREENER_CACHE / "ohlc_aktien.pkl"
 DOWNLOAD_START = "2016-06-01"
 DOWNLOAD_CHUNK = 40
 
-STRATEGIEN = {                   # Name: (Einstieg aus trend_cpo.EINSTIEGE, Ausstiegsregel)
+STRATEGIEN = {                   # name: (entry from trend_cpo.EINSTIEGE, exit rule)
     "Robust 1: Hoch 200 | Zeit 20": ("Hoch 200", {"typ": "zeit", "tage": 20}),
     "Robust 2: Hoch 50 + Volumenschub | Zeit 60 + Stopp 15%": ("Hoch 50 + Volumenschub",
                                                               {"typ": "kombi", "tage": 60, "pct": 0.15}),
     "Hoch 50 + Volumenschub | Zeit 120": ("Hoch 50 + Volumenschub", {"typ": "zeit", "tage": 120}),
     "Hoch 200 | Nachzug 15%": ("Hoch 200", {"typ": "nachzug", "pct": 0.15}),
 }
-SLIP_SCHLUSS = 10                # Basispunkte je Kauf/Verkauf in der Schlussauktion (wie im Trendmodell)
-SLIP_EROEFFNUNG = 10             # Eroeffnungsauktion
-SLIP_NACH_EROEFFNUNG = 20        # fortlaufender Handel kurz nach 9:00 (Spannen in den ersten Minuten breiter)
-MODI = {                         # Name: (Kurs fuer Kauf, Stopp-Art, Slippage, Handelsplatz bei Scalable)
+SLIP_SCHLUSS = 10                # basis points per purchase/sale in the closing auction (as in the trend model)
+SLIP_EROEFFNUNG = 10             # opening auction
+SLIP_NACH_EROEFFNUNG = 20        # continuous trading shortly after 9:00 (spreads wider in the first minutes)
+MODI = {                         # name: (price for purchase, stop type, slippage, trading venue at Scalable)
     "A Schluss am Folgetag (bisher)": ("schluss_folgetag", "schluss", SLIP_SCHLUSS, "Xetra"),
     "B Eroeffnung am Folgetag": ("eroeffnung", "naechste_eroeffnung", SLIP_EROEFFNUNG, "Xetra"),
     "B+ kurz nach Eroeffnung (EIX)": ("eroeffnung", "naechste_eroeffnung", SLIP_NACH_EROEFFNUNG, "EIX"),
@@ -71,7 +71,7 @@ def log(msg: str) -> None:
     tm.log(msg)
 
 
-# ======================================================================================= Kurse
+# ======================================================================================= Prices
 def download_ohlc(tickers: list[str]) -> dict:
     try:
         import yfinance as yf
@@ -85,7 +85,7 @@ def download_ohlc(tickers: list[str]) -> dict:
                 data = yf.download(chunk, start=DOWNLOAD_START, auto_adjust=True, progress=False, threads=True,
                                    group_by="column")
                 break
-            except Exception as e:                          # Rate-Limit o. ae.
+            except Exception as e:                          # rate limit or similar
                 wait = 15 * (attempt + 1)
                 log(f"  Download-Fehler ({type(e).__name__}), neuer Versuch in {wait}s")
                 time.sleep(wait)
@@ -120,7 +120,7 @@ def load_ohlc(m: dict, refresh: bool) -> dict:
         if not d:
             raise SystemExit("Download fehlgeschlagen - Internetverbindung / yfinance pruefen.")
         pd.to_pickle(d, OHLC_FILE)
-    # an den Kalender und die Bereinigung der Schlusskurse im Cache anpassen
+    # adjust to the calendar and the adjustment of the closing prices in the cache
     c = m["close"]
     dl_close = d["close"].reindex(index=c.index, columns=c.columns)
     factor = c / dl_close
@@ -132,7 +132,7 @@ def load_ohlc(m: dict, refresh: bool) -> dict:
     for k in ("open", "high", "low"):
         x = d[k].reindex(index=c.index, columns=c.columns) * factor
         out[k] = x.where(x > 0)
-    out["open"] = out["open"].where(out["open"].notna(), c)          # fehlt die Eroeffnung: Schlusskurs
+    out["open"] = out["open"].where(out["open"].notna(), c)          # if the opening is missing: closing price
     out["low"] = out["low"].where(out["low"].notna(), np.minimum(out["open"], c))
     cover = d["open"].reindex(index=c.index, columns=c.columns).notna().where(c.notna()).mean().mean()
     log(f"Eroeffnungskurse vorhanden fuer {cover:.0%} der Kurstage")
@@ -141,7 +141,7 @@ def load_ohlc(m: dict, refresh: bool) -> dict:
 
 # ======================================================================================= Trades
 def trades_for(m: dict, px: dict, entry: str, rule: dict, mode: str, start: pd.Timestamp) -> pd.DataFrame:
-    """Alle moeglichen Trades eines Einstiegs mit Kauf-/Verkaufskurs je nach Ausfuehrungsart."""
+    """All possible trades of an entry with purchase/sale price depending on the type of execution."""
     buy, stop_kind, _, _ = MODI[mode]
     cal = m["close"].index
     n = len(cal)
@@ -168,12 +168,12 @@ def trades_for(m: dict, px: dict, entry: str, rule: dict, mode: str, start: pd.T
         cap = e + (hold if hold else tc.MAX_HALTEDAUER)
         x, pout, why = None, None, ""
         pct = rule.get("pct")
-        if pct:                                             # nachgezogener Stopp
+        if pct:                                             # trailing stop
             hi = pe
             first_d = e if stop_kind == "stopp_order" else e + 1
             for d in range(first_d, min(cap, n - 1) + 1):
                 if stop_kind == "stopp_order":
-                    lvl = hi * (1 - pct)                    # Linie aus dem hoechsten Schluss bis Vortag
+                    lvl = hi * (1 - pct)                    # line from the highest close up to the previous day
                     o = O[d, j] if d > e and np.isfinite(O[d, j]) else np.inf
                     if d > e and o <= lvl:
                         x, pout, why = d, o, "Stopp (Kurslucke)"
@@ -187,7 +187,7 @@ def trades_for(m: dict, px: dict, entry: str, rule: dict, mode: str, start: pd.T
                     if C[d, j] <= hi * (1 - pct):
                         if stop_kind == "schluss":
                             x, pout, why = d, C[d, j], "Stopp"
-                        else:                               # erst am naechsten Morgen verkaufen
+                        else:                               # sell only on the next morning
                             x = d + 1
                             pout = (O[x, j] if x <= n - 1 and np.isfinite(O[x, j]) else C[min(x, n - 1), j])
                             why = "Stopp"
@@ -197,7 +197,7 @@ def trades_for(m: dict, px: dict, entry: str, rule: dict, mode: str, start: pd.T
             why = "Zeit" if hold else "Hoechstdauer"
             if x <= n - 1:
                 pout = O[x, j] if (buy == "eroeffnung" and np.isfinite(O[x, j])) else C[x, j]
-        if x > n - 1 or x > last[j]:                       # noch offen: zum letzten Schlusskurs bewertet
+        if x > n - 1 or x > last[j]:                       # still open: valued at the last closing price
             x = int(min(n - 1, last[j]))
             pout, why = C[x, j], "offen"
         rows.append((j, t, e, x, pe, pout, why, mom[t, j]))
@@ -206,10 +206,10 @@ def trades_for(m: dict, px: dict, entry: str, rule: dict, mode: str, start: pd.T
 
 def simulate(m: dict, trades: pd.DataFrame, start: pd.Timestamp, slip_bps: float, at_open: bool,
              venue: str = "Xetra") -> pd.Series:
-    """Portfolio wie trend_modell.simulate (long), aber mit eigenem Kauf- und Verkaufskurs je Trade.
-    Bewertung des Depots taeglich zum Schlusskurs. Positionsgroesse: Kauf in der Schlussauktion wie im Trendmodell
-    1/10 des Kontos zum heutigen Schluss; Kauf zur Eroeffnung 1/10 des Kontos vom Vorabend (mehr ist um 9:00
-    nicht bekannt)."""
+    """Portfolio like trend_model.simulate (long), but with its own purchase and sale price per trade.
+    Portfolio valued daily at the closing price. Position size: purchase in the closing auction as in the trend model
+    1/10 of the account at today's close; purchase at the opening 1/10 of the account from the previous evening (more is
+    not known at 9:00)."""
     cal = m["close"].index
     P = m["close"].ffill().to_numpy()
     n = len(cal)
@@ -246,7 +246,7 @@ def simulate(m: dict, trades: pd.DataFrame, start: pd.Timestamp, slip_bps: float
             if alloc + cost > cash:
                 continue
             cash -= alloc + cost
-            if r.x == t:                                    # am Kauftag ausgestoppt (Stopp-Order im Markt)
+            if r.x == t:                                    # stopped out on the day of purchase (stop order in the market)
                 value = shares * r.kurs_aus
                 cash += value - fee(value, j) - value * slip
                 continue
@@ -266,24 +266,24 @@ def stats(eq: pd.Series, a: pd.Timestamp | None = None) -> dict:
             "sharpe": r.mean() / r.std() * np.sqrt(252), "max_drawdown_pct": (1 - s / s.cummax()).max() * 100}
 
 
-# ======================================================================================= Nacht / Tag
+# ======================================================================================= Night / day
 def overnight_intraday(m: dict, px: dict) -> pd.DataFrame:
-    """Durchschnittliche Kursbewegung nach Signalen: Nacht (Schluss -> Eroeffnung) und Tag (Eroeffnung -> Schluss)
-    am Signaltag, am Kauftag (t+1) und an den Folgetagen; dazu alle Aktien zum Vergleich."""
+    """Average price move after signals: night (close -> opening) and day (opening -> close)
+    on the signal day, on the purchase day (t+1) and on the following days; in addition all stocks for comparison."""
     cal = m["close"].index
     C = m["close"].to_numpy()
     O = px["open"].to_numpy()
     start = pd.Timestamp(tc.SIGNAL_START)
-    night = O[1:] / C[:-1] - 1                              # Nacht vor Tag k: Schluss k-1 -> Eroeffnung k
-    day = C / O - 1                                         # Tag k: Eroeffnung k -> Schluss k
+    night = O[1:] / C[:-1] - 1                              # night before day k: close k-1 -> opening k
+    day = C / O - 1                                         # day k: opening k -> close k
     elig = m["elig"].to_numpy()
     rows = []
-    real_open = px["open"].ne(m["close"]).to_numpy()        # nur Tage mit echter Eroeffnung
+    real_open = px["open"].ne(m["close"]).to_numpy()        # only days with a real opening
     for entry in sorted({e for e, _ in STRATEGIEN.values()}):
         ev = tc.entry_signals(m, [entry])[entry].copy()
         ev[cal < start] = False
         ts, js = np.nonzero(ev)
-        for k in range(0, 6):                               # k = 0: Signaltag selbst (nur Tag), 1 = Kauftag ...
+        for k in range(0, 6):                               # k = 0: signal day itself (day only), 1 = purchase day ...
             tt = ts + k
             ok = tt < len(cal)
             tk, jk = tt[ok], js[ok]
@@ -294,7 +294,7 @@ def overnight_intraday(m: dict, px: dict) -> pd.DataFrame:
                          "nacht_bp": np.mean(n_[msk]) * 1e4 if k > 0 else np.nan,
                          "tag_bp": np.mean(d_[msk]) * 1e4,
                          "nacht_positiv_pct": (n_[msk] > 0).mean() * 100 if k > 0 else np.nan})
-    # Vergleich: alle handelbaren Aktien an allen Tagen
+    # comparison: all tradable stocks on all days
     msk = real_open[1:] & elig[1:] & np.isfinite(night) & np.isfinite(day[1:])
     msk[cal[1:] < start] = False
     rows.append({"einstieg": "alle Aktien (Vergleich)", "tag_nach_signal": np.nan, "signale": int(msk.sum()),
@@ -303,10 +303,10 @@ def overnight_intraday(m: dict, px: dict) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-# ======================================================================================= Ablauf
+# ======================================================================================= Procedure
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Ausfuehrungszeitpunkt fuer das Trendmodell")
-    ap.add_argument("--neu", action="store_true", help="Eroeffnungskurse neu laden")
+    ap = argparse.ArgumentParser(description="Execution time for the trend model")
+    ap.add_argument("--neu", action="store_true", help="reload opening prices")
     args = ap.parse_args()
     tm.OUT_DIR = tc.OUT_DIR
     m = tc.load_data()
@@ -331,7 +331,7 @@ def main() -> None:
             r.update({f"ab2017_{k}": v for k, v in stats(eq).items()})
             r.update({f"test_{k}": v for k, v in stats(eq, test).items()})
             res = []
-            for s in START_DATEN:                           # Robustheit gegen den Startzeitpunkt
+            for s in START_DATEN:                           # robustness against the start date
                 res.append(stats(simulate(m, tr[tr["e"] >= np.searchsorted(m["close"].index, s)], s, slip, at_open,
                                           venue)))
             d = pd.DataFrame(res)

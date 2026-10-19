@@ -1,53 +1,53 @@
 """
-trend_protokoll.py - Trendfolge auf Xetra (Robust 1 und Robust 2) mit Protokollmodus fuer Paper Trading
+trend_protokoll.py - trend following on Xetra (Robust 1 and Robust 2) with protocol mode for paper trading
 ================================================================================================================
 
-Zwei fertige Strategien, jede als eigenes Konto mit CAPITAL EUR (ohne Hebel, hoechstens 10 Positionen zu je 1/10):
+Two finished strategies, each as its own account with CAPITAL EUR (without leverage, at most 10 positions of 1/10 each):
 
-    Robust 1   Kauf, wenn eine Aktie auf ein neues 200-Tage-Hoch (Schlusskurs) steigt.
-               Verkauf nach genau 20 Handelstagen.
-    Robust 2   Kauf, wenn eine Aktie auf ein neues 50-Tage-Hoch steigt UND an dem Tag mindestens doppelt so viele
-               Stuecke gehandelt werden wie im Median der letzten 50 Tage.
-               Verkauf nach 60 Handelstagen - oder frueher, wenn der Schlusskurs 15 % unter den hoechsten Schlusskurs
-               seit dem Kauf faellt (nachgezogener Stopp).
+    Robust 1   Purchase when a stock rises to a new 200-day high (closing price).
+               Sale after exactly 20 trading days.
+    Robust 2   Purchase when a stock rises to a new 50-day high AND on that day at least twice as many
+               shares are traded as in the median of the last 50 days.
+               Sale after 60 trading days - or earlier if the closing price falls 15 % below the highest closing price
+               since the purchase (trailing stop).
 
-Fuer beide: nur Aktien mit mindestens 1 Mio. EUR Median-Umsatz je Tag (letzte 250 Tage) und Kurs >= 1 EUR.
-Gibt es mehr Signale als freie Plaetze, werden die Aktien mit dem staerksten 6-Monats-Trend zuerst gekauft.
-Grundlage: trend_cpo.py / trend_bewertung.py / trend_cpo_lang.py (Rueckrechnung 2006-2026, Walk-forward).
+For both: only stocks with a median turnover of at least 1 million EUR per day (last 250 days) and a price >= 1 EUR.
+If there are more signals than free slots, the stocks with the strongest 6-month trend are bought first.
+Basis: trend_cpo.py / trend_bewertung.py / trend_cpo_lang.py (backtest 2006-2026, walk-forward).
 
-Ausfuehrung
------------
-Das Signal entsteht mit dem Schlusskurs eines Tages. Gekauft und verkauft wird in der Xetra-Schlussauktion des
-naechsten Handelstags (Order bis 17:30 Uhr, z. B. limitiert oder als Auktionsorder). Darauf beruhen alle
-Rueckrechnungen. Der Lauf vor Boersenbeginn zeigt die Orders fuer die heutige Schlussauktion. Die Stopp-Linien von
-Robust 2 gelten fuer den heutigen Schlusskurs: Liegt der Kurs kurz vor 17:30 Uhr darunter, in der Schlussauktion
-verkaufen.
+Execution
+---------
+The signal arises with the closing price of a day. Buying and selling take place in the Xetra closing auction of the
+next trading day (order by 17:30, e.g. limited or as an auction order). All backtests
+are based on this. The run before the market opens shows the orders for today's closing auction. The stop lines of
+Robust 2 apply to today's closing price: If the price is below them shortly before 17:30, sell in the closing
+auction.
 
-Kosten: Ordergebuehren von Scalable Capital (FREE, Xetra 1,99 EUR je Order) fuer alle dort handelbaren Aktien,
-sonst IBKR (0,05 %, mind. 3 EUR) - eingestellt in trend_modell.py (BROKER, SCALABLE_TARIF,
-scalable_nicht_handelbar.csv) - dazu SLIPPAGE_BPS je Order. Steuern sind nicht beruecksichtigt.
+Costs: order fees of Scalable Capital (FREE, Xetra 1.99 EUR per order) for all stocks tradable there,
+otherwise IBKR (0.05 %, min. 3 EUR) - set in trend_model.py (BROKER, SCALABLE_TARIF,
+scalable_nicht_handelbar.csv) - plus SLIPPAGE_BPS per order. Taxes are not taken into account.
 
-Aufruf (im Ordner trend_modell)
--------------------------------
-    ..\\.venv\\python.exe trend_protokoll.py --protokoll       Protokoll: Kurse aktualisieren, Tag buchen, Orders fuer heute
-    ..\\.venv\\python.exe trend_protokoll.py --protokoll-neu   Protokoll neu beginnen (das alte wird archiviert)
-    ..\\.venv\\python.exe trend_protokoll.py --rueckrechnung   Rueckrechnung beider Strategien mit den aktuellen Kosten
-    protokoll_taeglich.bat                                    taeglicher Lauf (Windows-Aufgabe, siehe aufgabe_einrichten.bat)
+Usage (in the folder trend_model)
+---------------------------------
+    ..\\.venv\\python.exe trend_protokoll.py --protokoll       protocol: update prices, book the day, orders for today
+    ..\\.venv\\python.exe trend_protokoll.py --protokoll-neu   start the protocol anew (the old one is archived)
+    ..\\.venv\\python.exe trend_protokoll.py --rueckrechnung   backtest of both strategies with the current costs
+    protokoll_taeglich.bat                                    daily run (Windows task, see aufgabe_einrichten.bat)
 
-Protokollmodus
---------------
-Beim ersten Aufruf werden Starttag, Einstellungen und Aktienliste eingefroren (protokoll/start.json). Gewertet werden
-Signale ab dem Schlusskurs des Starttags; der erste Kauf ist also fruehestens am naechsten Handelstag. Jeder Lauf
-    - laedt die neuen Kurse von Yahoo (daten/kurse_protokoll.pkl; beim ersten Mal aus dem Screener-Cache),
-    - rechnet beide Konten ab dem Starttag und haengt den Tagesstand an protokoll/protokoll.csv an
-      (bestehende Zeilen werden nie geaendert; spaeter eingetragene Tage sind als "nachgetragen" markiert),
-    - schreibt jede Order mit Modellkurs nach protokoll/ausfuehrungen.csv. Wer die Orders in einem Demokonto
-      ausfuehrt, traegt dort in "realer_kurs" den tatsaechlichen Kurs ein (-> gemessene Slippage). War ein Kauf
-      nicht moeglich, in "ausfuehrbar" "nein" eintragen: Das Konto wird dann zusaetzlich ohne diesen Trade gezeigt.
-    - zeigt die Orders fuer die heutige Schlussauktion, die Stopp-Linien und das Ergebnis seit dem Start im Vergleich
-      zum DAX und zum gleichgewichteten Index derselben Aktien.
-Die Stueckzahlen der Orders sind mit dem Schlusskurs des Vortags gerechnet; gebucht wird mit dem tatsaechlichen
-Schlusskurs (1/10 des Kontos zu diesem Kurs, ganze Stuecke), daher koennen sie um ein Stueck abweichen.
+Protocol mode
+-------------
+On the first call, the start day, settings and stock list are frozen (protokoll/start.json). Signals from the
+closing price of the start day onwards are counted; the first purchase is therefore on the next trading day at the earliest. Each run
+    - loads the new prices from Yahoo (daten/kurse_protokoll.pkl; the first time from the screener cache),
+    - calculates both accounts from the start day and appends the daily status to protokoll/protokoll.csv
+      (existing rows are never changed; days entered later are marked as "nachgetragen"),
+    - writes each order with the model price to protokoll/ausfuehrungen.csv. Anyone who executes the orders in a demo account
+      enters the actual price there in "realer_kurs" (-> measured slippage). If a purchase was
+      not possible, enter "nein" in "ausfuehrbar": The account is then additionally shown without this trade.
+    - shows the orders for today's closing auction, the stop lines and the result since the start compared
+      to the DAX and to the equal-weighted index of the same stocks.
+The share quantities of the orders are calculated with the closing price of the previous day; booking uses the actual
+closing price (1/10 of the account at this price, whole shares), so they can differ by one share.
 """
 from __future__ import annotations
 
@@ -62,10 +62,10 @@ import numpy as np
 import pandas as pd
 
 import trend_cpo as tc
-import trend_modell as tm
+import trend_model as tm
 
-# ======================================================================================= Einstellungen
-STRATEGIEN = {                   # Name: (Einstieg aus trend_cpo.EINSTIEGE, Ausstieg aus trend_cpo.AUSSTIEGE)
+# ======================================================================================= Settings
+STRATEGIEN = {                   # name: (entry from trend_cpo.EINSTIEGE, exit from trend_cpo.AUSSTIEGE)
     "Robust 1": ("Hoch 200", "Zeit 20"),
     "Robust 2": ("Hoch 50 + Volumenschub", "Zeit 60 + Stopp 15%"),
 }
@@ -73,7 +73,7 @@ BESCHREIBUNG = {
     "Robust 1": "neues 200-Tage-Hoch, 20 Handelstage halten",
     "Robust 2": "neues 50-Tage-Hoch mit doppeltem Volumen, 60 Handelstage halten, Stopp 15 % unter dem Hoch seit Kauf",
 }
-CAPITAL = tm.CAPITAL             # je Strategie ein eigenes Konto
+CAPITAL = tm.CAPITAL             # a separate account for each strategy
 MIN_DAYS_FOR_SHARPE = 60
 BENCH = "EXS1.DE"                # iShares Core DAX
 DOWNLOAD_CHUNK = 50
@@ -81,7 +81,7 @@ DOWNLOAD_CHUNK = 50
 BASE_DIR = Path(__file__).resolve().parent
 PROT_DIR = BASE_DIR / "protokoll"
 KURS_DATEI = tm.DATA_DIR / "kurse_protokoll.pkl"
-KURS_START = BASE_DIR / "daten_start" / "kurse_protokoll.pkl.xz"   # Startbestand (z. B. fuer GitHub Actions)
+KURS_START = BASE_DIR / "daten_start" / "kurse_protokoll.pkl.xz"   # initial stock of prices (e.g. for GitHub Actions)
 WOCHENTAG = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
 
 
@@ -104,7 +104,7 @@ def save_csv(df: pd.DataFrame, name: str, index: bool = False) -> None:
     tm.OUT_DIR = old
 
 
-# ======================================================================================= Kurse
+# ======================================================================================= Prices
 def _read_screener_cache() -> dict:
     src = tm.SCREENER_CACHE / "prices_aktien.pkl"
     if not src.exists():
@@ -120,8 +120,8 @@ def _read_screener_cache() -> dict:
 
 
 def _merge(old: pd.DataFrame, new: pd.DataFrame, rescale: bool) -> pd.DataFrame:
-    """Neue Kurse an die alten anhaengen. Yahoo bereinigt die ganze Historie um Dividenden: Die alten Kurse werden
-    deshalb mit dem Verhaeltnis neu/alt der ueberlappenden Tage umgerechnet, damit keine Spruenge entstehen."""
+    """Append new prices to the old ones. Yahoo adjusts the whole history for dividends: The old prices are
+    therefore converted with the ratio new/old of the overlapping days, so that no jumps arise."""
     if new is None or new.empty:
         return old
     cols = old.columns.union(new.columns)
@@ -140,7 +140,7 @@ def _merge(old: pd.DataFrame, new: pd.DataFrame, rescale: bool) -> pd.DataFrame:
 
 
 def update_prices(download: bool = True) -> bool:
-    """Kurse und Umsaetze seit dem letzten gespeicherten Tag von Yahoo nachladen."""
+    """Load prices and turnover from Yahoo since the last stored day."""
     tm.DATA_DIR.mkdir(exist_ok=True)
     if KURS_DATEI.exists():
         d = pd.read_pickle(KURS_DATEI)
@@ -208,8 +208,8 @@ def update_prices(download: bool = True) -> bool:
 
 
 def load_market() -> dict:
-    """Markt wie im Trendmodell (Handelbarkeit, Umsatz), aber aus den Protokoll-Kursen."""
-    tm.STOCK_FILE = str(KURS_DATEI)                         # absoluter Pfad ersetzt den Screener-Cache
+    """Market as in the trend model (tradability, turnover), but from the protocol prices."""
+    tm.STOCK_FILE = str(KURS_DATEI)                         # absolute path replaces the screener cache
     m = tc.load_data()
     d = pd.read_pickle(KURS_DATEI)
     b = d.get("bench")
@@ -218,9 +218,9 @@ def load_market() -> dict:
     return m
 
 
-# ======================================================================================= Konto
+# ======================================================================================= Account
 def build_trades(m: dict, entry: str, exit_name: str, s0: int) -> tuple[pd.DataFrame, np.ndarray]:
-    """Alle Trades aus Signalen ab dem Starttag (Index s0). Noch offene Positionen: x = sehr gross."""
+    """All trades from signals from the start day (index s0) onwards. Positions still open: x = very large."""
     cal = m["close"].index
     sigs = tc.entry_signals(m, [entry])
     ev = sigs[entry].copy()
@@ -239,8 +239,8 @@ def build_trades(m: dict, entry: str, exit_name: str, s0: int) -> tuple[pd.DataF
 
 def run_account(m: dict, tr: pd.DataFrame, s0: int, skip: set | None = None, strat: str = "",
                 hold: int = 10 ** 6) -> dict:
-    """Konto ab dem Starttag: wie trend_modell.simulate (long, Schlussauktion), aber offene Positionen bleiben offen
-    und jede Order wird mit Stueckzahl, Kurs und Kosten festgehalten."""
+    """Account from the start day: like trend_model.simulate (long, closing auction), but open positions stay open
+    and each order is recorded with quantity, price and costs."""
     cal = m["close"].index
     cols = m["close"].columns
     P = m["close"].ffill().to_numpy()
@@ -323,7 +323,7 @@ def kpis(eq: pd.Series) -> dict:
 
 
 def next_session(last: pd.Timestamp, test: bool = False) -> pd.Timestamp:
-    """Naechster Xetra-Handelstag nach dem letzten Kurstag (Feiertage nicht beruecksichtigt)."""
+    """Next Xetra trading day after the last price day (holidays not taken into account)."""
     if test:
         return last + pd.offsets.BDay(1)
     try:
@@ -337,7 +337,7 @@ def next_session(last: pd.Timestamp, test: bool = False) -> pd.Timestamp:
     return day
 
 
-# ======================================================================================= Protokoll
+# ======================================================================================= Protocol
 def frozen_settings() -> dict:
     s = {"STRATEGIEN": {k: list(v) for k, v in STRATEGIEN.items()}}
     for name, (en, ex) in STRATEGIEN.items():
@@ -382,7 +382,7 @@ def run_protocol(restart: bool, stichtag: str | None) -> None:
     last = cal[-1]
     n = len(cal)
 
-    # ---- Start: Einstellungen einfrieren oder vergleichen
+    # ---- start: freeze or compare settings
     if restart and PROT_DIR.exists():
         target = BASE_DIR / f"protokoll_alt_{time.strftime('%Y%m%d_%H%M%S')}"
         shutil.move(str(PROT_DIR), str(target))
@@ -412,7 +412,7 @@ def run_protocol(restart: bool, stichtag: str | None) -> None:
     s0 = int(cal.get_loc(start_day))
     n_days = n - 1 - s0
 
-    # ---- nicht ausfuehrbare Kaeufe (ausfuehrungen.csv, Spalte 'ausfuehrbar' = nein)
+    # ---- purchases that could not be executed (ausfuehrungen.csv, column 'ausfuehrbar' = nein)
     fills_path = PROT_DIR / "ausfuehrungen.csv"
     fcols = ["datum", "strategie", "aktie", "name", "order", "seite", "grund", "stueck", "modellkurs", "gebuehr_eur",
              "slippage_eur", "realer_kurs", "abweichung_bp", "ausfuehrbar"]
@@ -428,7 +428,7 @@ def run_protocol(restart: bool, stichtag: str | None) -> None:
         skip = set(zip(old_fills.loc[no & buy, "strategie"], old_fills.loc[no & buy, "aktie"],
                        old_fills.loc[no & buy, "datum"]))
 
-    # ---- beide Konten rechnen
+    # ---- calculate both accounts
     P = m["close"].ffill().to_numpy()
     mom = P / np.vstack([np.full((126, P.shape[1]), np.nan), P[:-126]]) - 1
     accts, clean, signals_today, order_rows, pos_rows, log_rows = {}, {}, {}, [], [], []
@@ -441,10 +441,10 @@ def run_protocol(restart: bool, stichtag: str | None) -> None:
         accts[name] = acct
         if any(s[0] == name for s in skip):
             clean[name] = run_account(m, tr, s0, skip, name, hold)
-        # Orders fuer die naechste Schlussauktion
+        # orders for the next closing auction
         sells, stops = [], []
         for j, q in acct["positions"].items():
-            held_days = n - q["e"]                          # Handelstage seit Kauf, wenn heute verkauft wird
+            held_days = n - q["e"]                          # trading days since purchase if sold today
             seg = P[q["e"]:n, j]
             line = None
             if rule.get("pct"):
@@ -461,7 +461,7 @@ def run_protocol(restart: bool, stichtag: str | None) -> None:
                 sells.append((j, q, f"Haltedauer {rule.get('tage', tc.MAX_HALTEDAUER)} Tage erreicht"))
             elif line:
                 stops.append((j, q, line))
-        # neue Signale am letzten Schlusskurs
+        # new signals at the last closing price
         cand = np.flatnonzero(ev[n - 1]) if n - 1 >= s0 else np.array([], dtype=int)
         held = set(acct["positions"])
         cand = [j for j in cand if j not in held]
@@ -492,7 +492,7 @@ def run_protocol(restart: bool, stichtag: str | None) -> None:
             order_rows.append({"fuer_tag": f"{nxt:%Y-%m-%d}", "strategie": name, "order": "verkaufen, falls Schluss <= Linie",
                                "aktie": cols[j], "name": names.get(cols[j], ""), "stueck_ca": q["shares"],
                                "schluss_vortag": round(P[n - 1, j], 4), "hinweis": f"Stopp-Linie {line:.4f}"})
-        # Tagesstand fuer protokoll.csv
+        # daily status for protokoll.csv
         eq, inv, npos = acct["equity"], acct["invested"], acct["npos"]
         for t in range(1, len(eq)):
             day = eq.index[t]
@@ -502,18 +502,18 @@ def run_protocol(restart: bool, stichtag: str | None) -> None:
                              "positionen": int(npos.iloc[t]),
                              "tagesrendite": round(float(eq.iloc[t] / eq.iloc[t - 1] - 1), 6)})
 
-    # ---- Vergleichsmassstaebe seit dem Starttag
+    # ---- benchmarks since the start day
     pf = m["close"].ffill()
     ew_r = pf.pct_change().where(m["elig"].shift(1, fill_value=False)).mean(axis=1).fillna(0)
     ew_seit = ew_r.iloc[s0:].copy()
-    ew_seit.iloc[0] = 0.0                                   # Starttag = Ausgangswert
+    ew_seit.iloc[0] = 0.0                                   # start day = initial value
     bench_curves = {"Aktien gleichgewichtet": CAPITAL * (1 + ew_seit).cumprod()}
     if m.get("bench") is not None:
         b = m["bench"].iloc[s0:].ffill()
         if b.notna().all() and len(b):
             bench_curves["DAX (EXS1.DE)"] = CAPITAL * b / b.iloc[0]
 
-    # ---- protokoll.csv: nur neue Zeilen anhaengen
+    # ---- protokoll.csv: only append new rows
     log_path = PROT_DIR / "protokoll.csv"
     new_log = pd.DataFrame(log_rows)
     n_new, late = 0, False
@@ -532,7 +532,7 @@ def run_protocol(restart: bool, stichtag: str | None) -> None:
                 n_new = 0
                 log("protokoll.csv ist gesperrt (in Excel offen?) - die Zeilen werden beim naechsten Lauf nachgetragen")
 
-    # ---- ausfuehrungen.csv: neue Orders ergaenzen, eingetragene reale Kurse behalten
+    # ---- ausfuehrungen.csv: add new orders, keep entered real prices
     fills = pd.DataFrame([f for a in accts.values() for f in a["fills"]])
     if len(fills):
         fills["name"] = fills["aktie"].map(names).fillna("")
@@ -545,7 +545,7 @@ def run_protocol(restart: bool, stichtag: str | None) -> None:
         fills = fills[[(d, s, a, o) not in key_old for d, s, a, o in
                        zip(fills["datum"], fills["strategie"], fills["aktie"], fills["order"])]]
         fills = pd.concat([old_fills[fcols], fills], ignore_index=True)
-    for c in ("stueck", "gebuehr_eur", "slippage_eur"):     # alte Zeilen kommen als Text aus der Datei
+    for c in ("stueck", "gebuehr_eur", "slippage_eur"):     # old rows come from the file as text
         fills[c] = to_float(fills[c])
     fills["stueck"] = fills["stueck"].round().astype("Int64")
     real, model = to_float(fills["realer_kurs"]), to_float(fills["modellkurs"])
@@ -560,7 +560,7 @@ def run_protocol(restart: bool, stichtag: str | None) -> None:
         log("ausfuehrungen.csv ist gesperrt (in Excel offen?) - neue Orders werden beim naechsten Lauf ergaenzt")
     measured = fills["abweichung_bp"].dropna()
 
-    # ---- Ergebnisdateien
+    # ---- result files
     daily = pd.DataFrame({f"konto_{k}": a["equity"].round(2) for k, a in accts.items()})
     for k, c in bench_curves.items():
         daily[f"vergleich_{k}"] = c.reindex(daily.index).round(2)
@@ -664,7 +664,7 @@ def report(accts, clean, sig, bench_curves, start, start_day, last, nxt, n_days,
           "ergebnisse.csv)")
 
 
-# ======================================================================================= Rueckrechnung
+# ======================================================================================= Backtest
 def run_backtest() -> None:
     m = load_market() if KURS_DATEI.exists() else tc.load_data()
     cal = m["close"].index
@@ -690,16 +690,16 @@ def run_backtest() -> None:
 
 
 def main() -> None:
-    for stream in (sys.stdout, sys.stderr):                 # Sonderzeichen in Aktiennamen nie zum Abbruch werden lassen
+    for stream in (sys.stdout, sys.stderr):                 # never let special characters in stock names cause an abort
         try:
             stream.reconfigure(errors="replace")
         except Exception:
             pass
-    ap = argparse.ArgumentParser(description="Trendfolge Xetra: Robust 1 und Robust 2 mit Protokollmodus")
-    ap.add_argument("--protokoll", action="store_true", help="Protokollmodus (Paper Trading)")
-    ap.add_argument("--protokoll-neu", dest="protokoll_neu", action="store_true", help="Protokoll neu beginnen")
-    ap.add_argument("--rueckrechnung", action="store_true", help="Rueckrechnung beider Strategien")
-    ap.add_argument("--stichtag", default=None, help=argparse.SUPPRESS)   # nur zum Testen
+    ap = argparse.ArgumentParser(description="Trend following Xetra: Robust 1 and Robust 2 with protocol mode")
+    ap.add_argument("--protokoll", action="store_true", help="protocol mode (paper trading)")
+    ap.add_argument("--protokoll-neu", dest="protokoll_neu", action="store_true", help="start the protocol anew")
+    ap.add_argument("--rueckrechnung", action="store_true", help="backtest of both strategies")
+    ap.add_argument("--stichtag", default=None, help=argparse.SUPPRESS)   # for testing only
     args = ap.parse_args()
     if args.protokoll or args.protokoll_neu:
         run_protocol(args.protokoll_neu, args.stichtag)

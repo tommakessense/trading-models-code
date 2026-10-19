@@ -1,113 +1,113 @@
 """
-pair_screener.py - findet Paare mit (potenzieller) Cointegration unter Xetra-Aktien (Standard),
-                   unter Xetra-ETFs/ETCs (--etf) oder unter US-Aktien / US-ETFs (--us, --us --etf)
+pair_screener.py - finds pairs with (potential) cointegration among Xetra stocks (default),
+                   among Xetra ETFs/ETCs (--etf) or among US stocks / US ETFs (--us, --us --etf)
 
-Der Screener beschraenkt sich auf das Auffinden von Paaren und gibt eine Rangliste aus.
-Handelsregeln, Backtest, Sharpe Ratio und weitere Kennzahlen sind bewusst noch nicht enthalten.
+The screener is limited to finding pairs and outputs a ranking.
+Trading rules, backtest, Sharpe ratio and other metrics are deliberately not yet included.
 
-Aufruf
-------
-    python pair_screener.py                       # Aktien: alle Paare innerhalb derselben Branche
-    python pair_screener.py --pairs               # Aktien: nur die Paare aus pairs_aktien.csv
-    python pair_screener.py --two-stage           # zweistufig (auch mit --pairs kombinierbar)
-    python pair_screener.py --mean-reversion      # Zusatzauswertung (auch mit --pairs / --etf kombinierbar)
-    python pair_screener.py --etf [...]           # dasselbe fuer ETFs/ETCs (Paarliste: pairs.csv)
-    python pair_screener.py --us [...]            # dasselbe fuer in den USA gelistete Aktien
-    python pair_screener.py --us --etf [...]      # dasselbe fuer in den USA gelistete ETFs
+Usage
+-----
+    python pair_screener.py                       # stocks: all pairs within the same industry
+    python pair_screener.py --pairs               # stocks: only the pairs from pairs_aktien.csv
+    python pair_screener.py --two-stage           # two-stage (can also be combined with --pairs)
+    python pair_screener.py --mean-reversion      # additional evaluation (can also be combined with --pairs / --etf)
+    python pair_screener.py --etf [...]           # the same for ETFs/ETCs (pair list: pairs.csv)
+    python pair_screener.py --us [...]            # the same for stocks listed in the USA
+    python pair_screener.py --us --etf [...]      # the same for ETFs listed in the USA
     python pair_screener.py --pairs meine_liste.csv
-    python pair_screener.py --demo                # Probelauf mit synthetischen Daten, ohne Internet
-    python pair_screener.py --refresh             # Cache ignorieren, alles neu laden
+    python pair_screener.py --demo                # trial run with synthetic data, without internet
+    python pair_screener.py --refresh             # ignore the cache, reload everything
 
-Ablauf im Aktien-Modus
-----------------------
-1. Universum:   alle auf Xetra handelbaren Aktien (Liste der Deutschen Boerse, Instrumententyp CS),
-                ohne Sonderlinien wie zum Verkauf eingereichte Stuecke. Mit STOCK_SEGMENTS auf z. B.
-                DAX / MDAX / SDAX einschraenkbar.
-2. Kurse:       Tagesdaten (Adjusted Close) von Yahoo Finance, Ticker "<Xetra-Kuerzel>.DE".
-3. Stammdaten:  Marktkapitalisierung, Sektor und Branche von Yahoo (output_aktien/aktien_details.csv).
-                Groessenfilter: Marktkapitalisierung > MIN_MARKET_CAP_USD.
-4. Zeitraum:    die letzten FORMATION_YEARS (3) Jahre bis zum letzten Kursdatum.
-5. Bereinigung: Liquiditaetsfilter (Median-Umsatz auf Xetra >= STOCK_MIN_MEDIAN_TURNOVER_EUR, kaum Tage
-                ohne Kursaenderung). Die Datenfehler-Erkennung ist bei Aktien aus (STOCK_DETECT_PRICE_ERRORS).
-6. Paarbildung: nur Paare innerhalb derselben Branche (STOCK_GROUP_BY = "industry"; "sector" = groeber,
-                "" = alle Kombinationen), Tagesrenditen-Korrelation >= STOCK_MIN_RET_CORR, Spread-Breite
-                >= MIN_SPREAD_STD. Einen Filter 'gleicher Index' gibt es bei Aktien nicht: Stamm- und
-                Vorzugsaktien desselben Unternehmens sind hier gerade erwuenscht.
-7. Test:        Engle-Granger in beide Richtungen, Benjamini-Hochberg-Korrektur ueber alle Tests.
+Procedure in stock mode
+-----------------------
+1. Universe:    all stocks tradable on Xetra (list of Deutsche Boerse, instrument type CS),
+                without special lines such as shares tendered for sale. Can be restricted with STOCK_SEGMENTS to e.g.
+                DAX / MDAX / SDAX.
+2. Prices:      daily data (adjusted close) from Yahoo Finance, ticker "<Xetra symbol>.DE".
+3. Master data: market capitalization, sector and industry from Yahoo (output_aktien/aktien_details.csv).
+                Size filter: market capitalization > MIN_MARKET_CAP_USD.
+4. Period:      the last FORMATION_YEARS (3) years up to the last price date.
+5. Cleaning:    liquidity filter (median turnover on Xetra >= STOCK_MIN_MEDIAN_TURNOVER_EUR, hardly any days
+                without a price change). The data error detection is off for stocks (STOCK_DETECT_PRICE_ERRORS).
+6. Pairing:     only pairs within the same industry (STOCK_GROUP_BY = "industry"; "sector" = coarser,
+                "" = all combinations), correlation of daily returns >= STOCK_MIN_RET_CORR, spread width
+                >= MIN_SPREAD_STD. There is no 'same index' filter for stocks: common and
+                preferred shares of the same company are exactly what is wanted here.
+7. Test:        Engle-Granger in both directions, Benjamini-Hochberg correction over all tests.
 
-Ablauf im ETF-Modus (--etf)
----------------------------
-Universum sind alle Xetra-ETFs und -ETCs ohne gehebelte / inverse Produkte; Groessenfilter ist das
-Fondsvolumen (MIN_AUM_USD, ETCs ausgenommen). Statt nach Branchen wird ueber die Korrelation
-vorgefiltert (MIN_RET_CORR). Zusaetzlich fliegen Paare mit (fast) gleichem Index raus: gleicher
-Referenzindex (Yahoo / index_map.csv), Tracking Error relativ zur Volatilitaet unter MIN_REL_TE oder
-identisches Fondsvolumen (= Anteilsklassen desselben Fonds) -> same_index_excluded.csv. Die Paare mit
-fast gleichem Index, aber breitem Spread, werden separat getestet -> ranking_fast_gleich.csv.
+Procedure in ETF mode (--etf)
+-----------------------------
+The universe is all Xetra ETFs and ETCs without leveraged / inverse products; the size filter is the
+fund volume (MIN_AUM_USD, ETCs excepted). Instead of by industry, pre-filtering is done via the
+correlation (MIN_RET_CORR). In addition, pairs with (almost) the same index are removed: same
+reference index (Yahoo / index_map.csv), tracking error relative to volatility below MIN_REL_TE or
+identical fund volume (= share classes of the same fund) -> same_index_excluded.csv. The pairs with
+almost the same index but a wide spread are tested separately -> ranking_fast_gleich.csv.
 
-US-Markt (--us, mit allen anderen Schaltern kombinierbar)
+US market (--us, can be combined with all other switches)
 ---------------------------------------------------------
-Universum:   alle an Nasdaq, NYSE, NYSE American, NYSE Arca und Cboe gelisteten Aktien bzw. ETFs
-             (Symbollisten von nasdaqtrader.com). Ohne Optionsscheine, Bezugsrechte, Vorzugsaktien,
-             Units, SPACs, ETNs und Testsymbole; bei ETFs ohne gehebelte / inverse Produkte.
-Vorauswahl:  Weil das rund 6.000 Aktien bzw. 4.000 ETFs sind, werden zuerst 3 Monate Kurse geladen
-             und nur Titel mit genug Umsatz behalten (US_PRESCREEN_FACTOR x Mindestumsatz). Erst fuer
-             diese wird die lange Historie geladen (cache/vorauswahl_us_*.csv).
-Schwellen:   Median-Tagesumsatz >= US_STOCK_MIN_MEDIAN_TURNOVER_USD (Aktien) bzw.
-             US_ETF_MIN_MEDIAN_TURNOVER_USD (ETFs); Marktkapitalisierung / Fondsvolumen wie oben.
-             Mean Reversion rechnet mit US_MR_COST_BPS je Kauf / Verkauf.
-Sonst gleich: Branchengruppen bei Aktien, Filter 'gleicher Index' bei ETFs, Tests, Ausgaben.
-Paarlisten:  pairs_us_aktien.csv / pairs_us_etf.csv, Ticker in Yahoo-Schreibweise (BRK-B).
-Hinweis:     US-ETFs koennen Privatanleger in der EU in der Regel nicht kaufen (fehlendes
-             Basisinformationsblatt, PRIIPs); handelbar sind sie meist nur ueber Optionen / CFDs
-             oder als professioneller Kunde. US-Aktien sind davon nicht betroffen.
+Universe:    all stocks or ETFs listed on Nasdaq, NYSE, NYSE American, NYSE Arca and Cboe
+             (symbol lists from nasdaqtrader.com). Without warrants, subscription rights, preferred shares,
+             units, SPACs, ETNs and test symbols; for ETFs without leveraged / inverse products.
+Preselection: Because these are around 6,000 stocks or 4,000 ETFs, first 3 months of prices are loaded
+             and only securities with enough turnover are kept (US_PRESCREEN_FACTOR x minimum turnover). Only for
+             these is the long history loaded (cache/vorauswahl_us_*.csv).
+Thresholds:  median daily turnover >= US_STOCK_MIN_MEDIAN_TURNOVER_USD (stocks) or
+             US_ETF_MIN_MEDIAN_TURNOVER_USD (ETFs); market capitalization / fund volume as above.
+             Mean reversion calculates with US_MR_COST_BPS per purchase / sale.
+Otherwise the same: industry groups for stocks, 'same index' filter for ETFs, tests, outputs.
+Pair lists:  pairs_us_aktien.csv / pairs_us_etf.csv, tickers in Yahoo notation (BRK-B).
+Note:        Retail investors in the EU can usually not buy US ETFs (missing key
+             information document, PRIIPs); they are mostly tradable only via options / CFDs
+             or as a professional client. US stocks are not affected by this.
 
-Zweistufiger Modus (--two-stage)
---------------------------------
-Stufe 1 sucht im frueheren Zeitraum (STAGE1_YEARS Jahre vor dem aktuellen Zeitraum) und waehlt die
-besten Kandidaten aus (hoechstens STAGE1_TOP_N, p <= STAGE1_MAX_P). Stufe 2 testet nur diese Kandidaten
-in den letzten FORMATION_YEARS Jahren. Weil die Daten der Stufe 2 nicht fuer die Auswahl verwendet
-wurden und nur wenige Tests laufen, ist die Huerde niedriger und das Ergebnis belastbarer.
+Two-stage mode (--two-stage)
+----------------------------
+Stage 1 searches in the earlier period (STAGE1_YEARS years before the current period) and selects the
+best candidates (at most STAGE1_TOP_N, p <= STAGE1_MAX_P). Stage 2 tests only these candidates
+in the last FORMATION_YEARS years. Because the data of stage 2 were not used for the selection and
+only a few tests run, the hurdle is lower and the result more reliable.
 
-Zusatzauswertung Mean Reversion (--mean-reversion)
+Additional evaluation mean reversion (--mean-reversion)
+-------------------------------------------------------
+Instead of strict cointegration, tests the weaker question: Does the spread of a pair return to its
+moving average of the last months, and is anything left of this after trading costs?
+Spread = log(A) - log(B) (same amount long and short). Entry at |z| > MR_ENTRY_Z relative to the
+MR_LOOKBACK-day mean, exit at the mean or after MR_MAX_HOLD days. Costs MR_COST_BPS per purchase /
+sale, borrowing fee MR_BORROW_FEE. Rolling: For each test year, the MR_TOP_N pairs with the best
+result of the MR_FORMATION_YEARS previous years are selected and traded in the following year (new data).
+Output: mr_jahre.csv (per test year: all pairs / selection), mr_auswahl.csv (selected pairs per year),
+mr_paare.csv (metrics per pair), mr_portfolio_renditen.csv (daily returns).
+Development of the best pairs: The MR_SHOW_TOP pairs with the highest Sharpe ratio over the whole period
+are shown year by year (return and Sharpe per test year, last 6 months, Sharpe 'frueher' against
+'zuletzt' = last MR_TREND_YEARS years) -> mr_top_paare.csv, mr_top_paare_verlauf.csv (cumulative
+return per day) and mr_top_paare.png. Caution: These pairs are selected in hindsight. That they look
+good is therefore no proof; what is meaningful is only whether they have held up recently or are weakening.
+Price breaks: daily moves above the factor MR_MAX_DAILY_MOVE are considered a break in the data (e.g. new
+shares after an insolvency); the history before is not used -> mr_kursbrueche.csv.
+Cross-check (mr_top_paare_gegenprobe.csv): the best pairs of only the earlier years and their result in
+the last MR_TREND_YEARS years, which are new data for this selection.
+Limits: only securities still listed today, today's market capitalization / industry, closing prices instead of
+bid and ask prices. The result is therefore rather too favorable than too strict.
+
+Results (CSV with ";" and decimal comma for Excel)
 --------------------------------------------------
-Prueft statt strenger Cointegration die schwaechere Frage: Kehrt der Spread eines Paares zu seinem
-gleitenden Mittel der letzten Monate zurueck, und bleibt davon nach Handelskosten etwas uebrig?
-Spread = log(A) - log(B) (gleicher Betrag long und short). Einstieg bei |z| > MR_ENTRY_Z gegenueber dem
-MR_LOOKBACK-Tage-Mittel, Ausstieg am Mittel oder nach MR_MAX_HOLD Tagen. Kosten MR_COST_BPS je Kauf /
-Verkauf, Leihgebuehr MR_BORROW_FEE. Rollierend: Je Testjahr werden die MR_TOP_N Paare mit dem besten
-Ergebnis der MR_FORMATION_YEARS Vorjahre ausgewaehlt und im Folgejahr gehandelt (neue Daten).
-Ausgabe: mr_jahre.csv (je Testjahr: alle Paare / Auswahl), mr_auswahl.csv (ausgewaehlte Paare je Jahr),
-mr_paare.csv (Kennzahlen je Paar), mr_portfolio_renditen.csv (Tagesrenditen).
-Entwicklung der besten Paare: Die MR_SHOW_TOP Paare mit der hoechsten Sharpe Ratio im Gesamtzeitraum
-werden Jahr fuer Jahr gezeigt (Rendite und Sharpe je Testjahr, letzte 6 Monate, Sharpe 'frueher' gegen
-'zuletzt' = letzte MR_TREND_YEARS Jahre) -> mr_top_paare.csv, mr_top_paare_verlauf.csv (aufgelaufene
-Rendite je Tag) und mr_top_paare.png. Achtung: Diese Paare sind im Rueckblick ausgesucht. Dass sie gut
-aussehen, ist deshalb kein Beleg; aussagekraeftig ist nur, ob sie sich zuletzt halten oder nachlassen.
-Kursbrueche: Tagesbewegungen ueber Faktor MR_MAX_DAILY_MOVE gelten als Bruch in den Daten (z. B. neue
-Aktien nach einer Insolvenz); die Historie davor wird nicht verwendet -> mr_kursbrueche.csv.
-Gegenprobe (mr_top_paare_gegenprobe.csv): die besten Paare nur der frueheren Jahre und ihr Ergebnis in
-den letzten MR_TREND_YEARS Jahren, die fuer diese Auswahl neue Daten sind.
-Grenzen: nur heute noch gelistete Titel, heutige Marktkapitalisierung / Branche, Schlusskurse statt
-Geld- und Briefkursen. Das Ergebnis ist deshalb eher zu guenstig als zu streng.
-
-Ergebnisse (CSV mit ";" und Dezimalkomma fuer Excel)
-----------------------------------------------------
-    Ordner: ./output_aktien (Xetra-Aktien), ./output (Xetra-ETFs), ./output_us_aktien, ./output_us_etf
-    ranking.csv / ranking_paarliste.csv   alle getesteten Paare, sortiert nach p-Wert
-    cointegrated_pairs.csv                nur die nach Korrektur signifikanten Paare
-    ranking_stufe1.csv, ranking_zweistufig.csv            zweistufiger Lauf
-    aktien_details.csv / etf_details.csv  Stammdaten je Instrument
+    Folder: ./output_aktien (Xetra stocks), ./output (Xetra ETFs), ./output_us_aktien, ./output_us_etf
+    ranking.csv / ranking_paarliste.csv   all tested pairs, sorted by p-value
+    cointegrated_pairs.csv                only the pairs significant after correction
+    ranking_stufe1.csv, ranking_zweistufig.csv            two-stage run
+    aktien_details.csv / etf_details.csv  master data per instrument
     data_errors.csv, narrow_spread_excluded.csv, universe_used.csv, missing_marktkap.csv / missing_aum.csv
-    nur ETFs: same_index_excluded.csv, ranking_fast_gleich*.csv
+    ETFs only: same_index_excluded.csv, ranking_fast_gleich*.csv
 
-Eigene Dateien neben dem Skript (optional)
-------------------------------------------
-    pairs_aktien.csv / pairs.csv   ticker_a;ticker_b;kategorie;begruendung   (Paarliste fuer --pairs)
-    pairs_us_aktien.csv / pairs_us_etf.csv   dasselbe fuer --us
-    universe_aktien.csv / universe.csv   ticker[;name]      (eigenes Universum statt Xetra-Liste)
-    gruppen_aktien.csv             ticker;gruppe            (Branche manuell zuordnen, nur Aktien)
-    aum_overrides.csv              ticker;aum_usd           (Fondsvolumen korrigieren, nur ETFs)
-    index_map.csv                  ticker;index             (Referenzindex zuordnen, nur ETFs)
+Own files next to the script (optional)
+---------------------------------------
+    pairs_aktien.csv / pairs.csv   ticker_a;ticker_b;kategorie;begruendung   (pair list for --pairs)
+    pairs_us_aktien.csv / pairs_us_etf.csv   the same for --us
+    universe_aktien.csv / universe.csv   ticker[;name]      (own universe instead of the Xetra list)
+    gruppen_aktien.csv             ticker;gruppe            (assign industry manually, stocks only)
+    aum_overrides.csv              ticker;aum_usd           (correct fund volume, ETFs only)
+    index_map.csv                  ticker;index             (assign reference index, ETFs only)
 
     pip install yfinance statsmodels joblib pandas numpy requests
 """
@@ -131,96 +131,96 @@ from joblib import Parallel, delayed
 from statsmodels.stats.multitest import multipletests
 from statsmodels.tsa.stattools import coint
 
-# ================================ Konfiguration ================================
-HISTORY_YEARS = 10          # so weit zurueck werden Kurse geladen (Cache fuer spaetere Tests);
-                            # fuer die Suche werden nur die letzten FORMATION_YEARS genutzt
-FORMATION_YEARS = 3         # Zeitraum, in dem die Cointegration getestet wird
+# ================================ Configuration ================================
+HISTORY_YEARS = 10          # prices are loaded this far back (cache for later tests);
+                            # only the last FORMATION_YEARS are used for the search
+FORMATION_YEARS = 3         # period in which the cointegration is tested
 
-# ---- Aktien-Modus (Standard). Der ETF/ETC-Modus laeuft mit --etf und nutzt die Einstellungen darunter.
-MIN_MARKET_CAP_USD = 500e6  # Mindest-Marktkapitalisierung in USD
-STOCK_MIN_MEDIAN_TURNOVER_EUR = 250_000   # Median-Tagesumsatz auf Xetra (Liquiditaet, Leerverkauf)
-STOCK_MIN_RET_CORR = 0.30   # Vorfilter Korrelation der Tagesrenditen (Aktien korrelieren schwaecher als ETFs)
-STOCK_GROUP_BY = "industry" # nur Paare innerhalb derselben Gruppe testen: "industry" (Branche, fein),
-                            # "sector" (Sektor, grob) oder "" (alle Kombinationen)
-STOCK_SEGMENTS = ()         # leer = alle Xetra-Aktien; z. B. ("DAX", "MDAX", "SDAX", "DEUTSCHLAND")
-STOCK_DETECT_PRICE_ERRORS = False  # Datenfehler-Erkennung (Kurssprung gegenueber aehnlichen Titeln, der
-                            # zurueckspringt). Bei Aktien aus: Spruenge nach Quartalszahlen sind dort echt.
+# ---- Stock mode (default). The ETF/ETC mode runs with --etf and uses the settings below.
+MIN_MARKET_CAP_USD = 500e6  # minimum market capitalization in USD
+STOCK_MIN_MEDIAN_TURNOVER_EUR = 250_000   # median daily turnover on Xetra (liquidity, short selling)
+STOCK_MIN_RET_CORR = 0.30   # pre-filter correlation of daily returns (stocks correlate less strongly than ETFs)
+STOCK_GROUP_BY = "industry" # only test pairs within the same group: "industry" (industry, fine),
+                            # "sector" (sector, coarse) or "" (all combinations)
+STOCK_SEGMENTS = ()         # empty = all Xetra stocks; e.g. ("DAX", "MDAX", "SDAX", "DEUTSCHLAND")
+STOCK_DETECT_PRICE_ERRORS = False  # data error detection (price jump relative to similar securities that
+                            # jumps back). Off for stocks: jumps after quarterly figures are real there.
 
-# ---- ETF/ETC-Modus (--etf)
-INCLUDE_ETC = True          # ETCs (Gold, Silber, Oel, Industriemetalle ...) ins Universum aufnehmen
-MIN_AUM_USD = 100e6         # Mindest-Fondsvolumen in USD
-AUM_FILTER_ETC = False      # AUM-Filter auch auf ETCs anwenden? (Yahoo kennt deren Volumen selten)
-MAX_STALE_SHARE = 0.05      # max. Anteil Tage ohne Handel / ohne Kursaenderung auf Xetra
-MIN_MEDIAN_TURNOVER_EUR = 100_000   # Median-Tagesumsatz auf Xetra; seltener gehandelte ETFs haben
-                            # veraltete Schlusskurse -> kuenstliche 'Mean Reversion' im Spread
-KEEP_UNKNOWN_TURNOVER = True  # ETFs behalten, fuer die Yahoo keine Umsaetze liefert
-KEEP_MISSING_AUM = False    # ETFs ohne AUM-Angabe behalten? False = konservativ ausschliessen
-MIN_COVERAGE = 0.95         # Mindestanteil Handelstage mit Kurs im Formationsfenster
+# ---- ETF/ETC mode (--etf)
+INCLUDE_ETC = True          # include ETCs (gold, silver, oil, industrial metals ...) in the universe
+MIN_AUM_USD = 100e6         # minimum fund volume in USD
+AUM_FILTER_ETC = False      # apply the AUM filter to ETCs as well? (Yahoo rarely knows their volume)
+MAX_STALE_SHARE = 0.05      # max. share of days without trading / without a price change on Xetra
+MIN_MEDIAN_TURNOVER_EUR = 100_000   # median daily turnover on Xetra; less frequently traded ETFs have
+                            # stale closing prices -> artificial 'mean reversion' in the spread
+KEEP_UNKNOWN_TURNOVER = True  # keep ETFs for which Yahoo provides no turnover
+KEEP_MISSING_AUM = False    # keep ETFs without AUM data? False = exclude conservatively
+MIN_COVERAGE = 0.95         # minimum share of trading days with a price in the formation window
 
-MIN_RET_CORR = 0.70         # Vorfilter: Korrelation der Tagesrenditen in der Formation
-MAX_RET_CORR = 0.995        # darueber = praktisch derselbe Index
-MIN_REL_TE = 0.20           # Tracking Error / Volatilitaet (Monatsrenditen). Darunter bilden A und B
-                            # (fast) denselben Index ab -> Paar wird ausgeschlossen. Relativ, damit
-                            # schwankungsarme Anleihen-ETFs nicht faelschlich als 'gleich' gelten.
-SAME_AUM_IS_SAME_FUND = True  # exakt gleiches Fondsvolumen bei Yahoo = Anteilsklassen desselben Fonds
-MIN_SPREAD_STD = 0.01       # Mindestbreite des Spreads: Std von log(A) - beta*log(B) (0.01 = ca. 1 %).
-                            # Schmalere Paare werden nicht getestet: fast identische Engagements,
-                            # deren 'Mean Reversion' vor allem Kursrauschen ist. 0 = Filter aus.
-                            # Gilt nur fuer 'alle Kombinationen', nicht fuer die eigene Paarliste (--pairs).
-NEAR_SAME_MIN_SPREAD = 0.01 # Auswertung 'fast gleiche Indizes': Paare, die der Tracking-Error-Filter als
-                            # 'gleicher Index' aussortiert, deren Spread aber mindestens so breit ist
-                            # (z. B. zwei Goldminen- oder Halbleiter-Indizes). Eigene Rangliste.
-JUMP_THRESHOLD = 0.08       # Datenfehler: Tagesrendite weicht um mehr als 8 % von aehnlichen ETFs ab
-JUMP_REVERT_DAYS = 30       # ... und springt innerhalb von 30 Handelstagen in Gegenrichtung zurueck
-PEER_MIN_CORR = 0.70        # 'aehnliche ETFs' = die 5 am staerksten korrelierten mit Korrelation >= 0,7
-MAX_PAIRS_TO_TEST = 55_000  # Obergrenze getesteter Paare (hoechste Korrelation zuerst)
-COINT_MAXLAG = 5            # max. Lags im ADF-Teil des Engle-Granger-Tests
+MIN_RET_CORR = 0.70         # pre-filter: correlation of the daily returns in the formation
+MAX_RET_CORR = 0.995        # above this = practically the same index
+MIN_REL_TE = 0.20           # tracking error / volatility (monthly returns). Below this, A and B track
+                            # (almost) the same index -> the pair is excluded. Relative, so that
+                            # low-volatility bond ETFs are not wrongly considered 'the same'.
+SAME_AUM_IS_SAME_FUND = True  # exactly the same fund volume at Yahoo = share classes of the same fund
+MIN_SPREAD_STD = 0.01       # minimum width of the spread: std of log(A) - beta*log(B) (0.01 = approx. 1 %).
+                            # Narrower pairs are not tested: almost identical exposures,
+                            # whose 'mean reversion' is mainly price noise. 0 = filter off.
+                            # Applies only to 'all combinations', not to the own pair list (--pairs).
+NEAR_SAME_MIN_SPREAD = 0.01 # Evaluation 'almost identical indices': pairs that the tracking error filter sorts out as
+                            # 'same index', but whose spread is at least this wide
+                            # (e.g. two gold miner or semiconductor indices). Separate ranking.
+JUMP_THRESHOLD = 0.08       # data error: daily return deviates by more than 8 % from similar ETFs
+JUMP_REVERT_DAYS = 30       # ... and jumps back in the opposite direction within 30 trading days
+PEER_MIN_CORR = 0.70        # 'similar ETFs' = the 5 most strongly correlated with correlation >= 0.7
+MAX_PAIRS_TO_TEST = 55_000  # upper limit of tested pairs (highest correlation first)
+COINT_MAXLAG = 5            # max. lags in the ADF part of the Engle-Granger test
 
-FDR_ALPHA = 0.05            # Benjamini-Hochberg-Niveau (Multiple-Testing-Korrektur)
-RANK_TOP_FOR_COUNT = 100    # Haeufigkeit je ETF wird unter den besten N Paaren der Rangliste gezaehlt
+FDR_ALPHA = 0.05            # Benjamini-Hochberg level (multiple testing correction)
+RANK_TOP_FOR_COUNT = 100    # frequency per ETF is counted among the best N pairs of the ranking
 
-# Zweistufiger Modus (--two-stage): Stufe 1 waehlt Kandidaten im frueheren Zeitraum aus,
-# Stufe 2 testet nur diese Kandidaten im spaeteren Zeitraum (= letzte FORMATION_YEARS Jahre).
-STAGE1_YEARS = 3            # Laenge des frueheren Zeitraums (direkt vor dem Zeitraum der Stufe 2)
-STAGE1_TOP_N = 20           # hoechstens so viele Kandidaten gehen in Stufe 2
-STAGE1_MAX_P = 0.05         # Kandidat nur, wenn der unkorrigierte p-Wert in Stufe 1 darunter liegt
-STAGE1_MAX_PER_ETF = 3      # ein ETF darf hoechstens in so vielen Kandidaten-Paaren vorkommen
+# Two-stage mode (--two-stage): stage 1 selects candidates in the earlier period,
+# stage 2 tests only these candidates in the later period (= last FORMATION_YEARS years).
+STAGE1_YEARS = 3            # length of the earlier period (directly before the period of stage 2)
+STAGE1_TOP_N = 20           # at most this many candidates go into stage 2
+STAGE1_MAX_P = 0.05         # candidate only if the uncorrected p-value in stage 1 is below this
+STAGE1_MAX_PER_ETF = 3      # an ETF may appear in at most this many candidate pairs
 
-# ---- US-Markt (--us): in den USA gelistete Aktien bzw. mit --etf ETFs, Kurse und Umsaetze in USD
-US_STOCK_MIN_MEDIAN_TURNOVER_USD = 5_000_000   # Median-Tagesumsatz je Aktie in USD
-US_ETF_MIN_MEDIAN_TURNOVER_USD = 1_000_000     # Median-Tagesumsatz je ETF in USD
-US_PRESCREEN_FACTOR = 0.5   # Vorauswahl: lange Historie nur fuer Titel laden, deren Umsatz der letzten
-                            # 3 Monate mindestens diesem Anteil der Umsatzschwelle entspricht
-US_MR_COST_BPS = 5          # Kosten je Kauf oder Verkauf in Basispunkten (US-Titel sind enger gestellt)
+# ---- US market (--us): stocks listed in the USA or, with --etf, ETFs, prices and turnover in USD
+US_STOCK_MIN_MEDIAN_TURNOVER_USD = 5_000_000   # median daily turnover per stock in USD
+US_ETF_MIN_MEDIAN_TURNOVER_USD = 1_000_000     # median daily turnover per ETF in USD
+US_PRESCREEN_FACTOR = 0.5   # preselection: load the long history only for securities whose turnover in the last
+                            # 3 months corresponds to at least this share of the turnover threshold
+US_MR_COST_BPS = 5          # costs per purchase or sale in basis points (US securities have tighter spreads)
 
-# ---- Zusatzauswertung --mean-reversion: Rueckkehr zum gleitenden Mittel, mit Kosten, auf neuen Daten
-MR_LOOKBACK = 60            # Handelstage fuer gleitenden Mittelwert und Standardabweichung des Spreads
-MR_ENTRY_Z = 2.0            # Einstieg, wenn der Spread mehr als 2 Std vom gleitenden Mittel entfernt ist
-MR_EXIT_Z = 0.0             # Ausstieg, wenn er das Mittel wieder erreicht (0) bzw. bis auf EXIT_Z herankommt
-MR_MAX_HOLD = 40            # spaetestens nach so vielen Handelstagen glattstellen (Zeit-Stopp)
-MR_COST_BPS = 10            # Kosten je Kauf oder Verkauf in Basispunkten des gehandelten Betrags
-MR_BORROW_FEE = 0.01        # Leihgebuehr p. a. auf die leerverkaufte Seite
-MR_FORMATION_YEARS = 3      # Auswahl der Paare anhand ihrer Ergebnisse in diesen Vorjahren ...
-MR_TEST_YEARS = 1           # ... getestet im jeweils folgenden Jahr (rollierend)
-MR_TOP_N = 20               # so viele Paare werden je Testjahr ausgewaehlt
-MR_MAX_PER_STOCK = 2        # ein Titel darf hoechstens in so vielen ausgewaehlten Paaren vorkommen
-MR_MIN_TRADES = 5           # Mindestzahl abgeschlossener Trades in den Vorjahren
-MR_MAX_PAIRS = 5_000        # Obergrenze Paare je Jahr (ETF-Modus: hoechste Korrelation zuerst)
-MR_MAX_DAILY_MOVE = 3.0     # Tagesbewegung ueber Faktor 3 (mehr als +200 % oder -67 %) = Bruch in den Kursdaten
-                            # (z. B. neue Aktien nach Insolvenz): die Historie davor wird nicht verwendet
-MR_SHOW_TOP = 10            # so viele der besten Paare (nach Sharpe im Gesamtzeitraum) Jahr fuer Jahr zeigen
-MR_TREND_YEARS = 2          # 'zuletzt' = die letzten so vielen Testjahre, verglichen mit den Jahren davor
-MR_TREND_MIN_DIFF = 0.5     # ab diesem Sharpe-Unterschied gilt die Entwicklung als zu- bzw. abnehmend
+# ---- Additional evaluation --mean-reversion: return to the moving average, with costs, on new data
+MR_LOOKBACK = 60            # trading days for the moving average and standard deviation of the spread
+MR_ENTRY_Z = 2.0            # entry when the spread is more than 2 std away from the moving average
+MR_EXIT_Z = 0.0             # exit when it reaches the mean again (0) or comes within EXIT_Z of it
+MR_MAX_HOLD = 40            # close out after this many trading days at the latest (time stop)
+MR_COST_BPS = 10            # costs per purchase or sale in basis points of the traded amount
+MR_BORROW_FEE = 0.01        # borrowing fee p. a. on the short side
+MR_FORMATION_YEARS = 3      # selection of the pairs based on their results in these previous years ...
+MR_TEST_YEARS = 1           # ... tested in the respective following year (rolling)
+MR_TOP_N = 20               # this many pairs are selected per test year
+MR_MAX_PER_STOCK = 2        # a security may appear in at most this many selected pairs
+MR_MIN_TRADES = 5           # minimum number of closed trades in the previous years
+MR_MAX_PAIRS = 5_000        # upper limit of pairs per year (ETF mode: highest correlation first)
+MR_MAX_DAILY_MOVE = 3.0     # daily move above factor 3 (more than +200 % or -67 %) = break in the price data
+                            # (e.g. new shares after insolvency): the history before is not used
+MR_SHOW_TOP = 10            # show this many of the best pairs (by Sharpe over the whole period) year by year
+MR_TREND_YEARS = 2          # 'zuletzt' = the last this many test years, compared with the years before
+MR_TREND_MIN_DIFF = 0.5     # from this Sharpe difference on, the development counts as increasing or decreasing
 
-N_JOBS = -1                 # CPU-Kerne fuer den Cointegrationstest (-1 = alle)
+N_JOBS = -1                 # CPU cores for the cointegration test (-1 = all)
 # ===============================================================================
 
-MODE = "aktien"             # wird in main() gesetzt: "aktien" (Standard) oder "etf" (--etf)
-MARKET = "xetra"            # wird in main() gesetzt: "xetra" (Standard) oder "us" (--us)
+MODE = "aktien"             # is set in main(): "aktien" (default) or "etf" (--etf)
+MARKET = "xetra"            # is set in main(): "xetra" (default) or "us" (--us)
 
 US_LISTS = {"nasdaqlisted.txt": "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt",
             "otherlisted.txt": "https://www.nasdaqtrader.com/dynamic/SymDir/otherlisted.txt"}
-# US-Aktien: keine Optionsscheine, Bezugsrechte, Vorzugs- und Schuldtitel, Units, leere Boersenmaentel
+# US stocks: no warrants, subscription rights, preferred and debt securities, units, empty shell companies
 US_STOCK_EXCLUDE = re.compile(r"Warrant|\bRights?\b|Preferred|\bNotes?\b|Debenture|\bUnits?\b(?!.*Limited Partner)"
                               r"|Acquisition Corp|%|Depositary Shares?.*(?:Preferred|Interest in)|\bETN\b",
                               re.IGNORECASE)
@@ -230,7 +230,7 @@ US_LEVERAGE_PATTERN = re.compile(r"ULTRAPRO|ULTRASHORT|\bULTRA\s+(?!SHORT)|LEVER
 
 
 def cache_file(kind: str) -> Path:
-    """Cache-Datei je Markt und Modus (Xetra behaelt die bisherigen Namen)."""
+    """Cache file per market and mode (Xetra keeps the previous names)."""
     us = MARKET == "us"
     names = {"prices": {("xetra", "aktien"): "prices_aktien.pkl", ("xetra", "etf"): "prices.pkl",
                         ("us", "aktien"): "prices_us_aktien.pkl", ("us", "etf"): "prices_us_etf.pkl"}[(MARKET, MODE)],
@@ -254,8 +254,8 @@ XETRA_CSV_FALLBACK = ("https://www.cashmarket.deutsche-boerse.com/resource/blob/
                       "684b31b077a5de5d5777352984c7a7df/data/t7-xetr-allTradableInstruments.csv")
 HTTP_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) pair_screener"}
 
-# Gehebelte / inverse Produkte. "SHORT" nur, wenn nicht "Short Duration/Maturity/Term" o. ae.
-# Aktien: zum Verkauf eingereichte Stuecke, Bezugsrechte u. ae. sind keine eigenen Unternehmen
+# leveraged / inverse products. "SHORT" only if not "Short Duration/Maturity/Term" or similar.
+# stocks: shares tendered for sale, subscription rights and the like are not separate companies
 STOCK_EXCLUDE_PATTERN = re.compile(r"VERK\.|Z\.\s*VERK|BEZUGSR|\bBZR\b|JUNGE|UMTAUSCH", re.IGNORECASE)
 
 LEVERAGE_PATTERN = re.compile(
@@ -270,17 +270,17 @@ def log(msg: str) -> None:
 
 
 def save_csv(df: pd.DataFrame, name: str, index: bool = False) -> Path:
-    """CSV fuer deutsches Excel: Semikolon, Dezimalkomma, UTF-8 mit BOM."""
+    """CSV for German Excel: semicolon, decimal comma, UTF-8 with BOM."""
     OUT_DIR.mkdir(exist_ok=True)
     path = OUT_DIR / name
-    if MODE == "aktien":                                    # intern heissen die Spalten etf_a / etf_b
+    if MODE == "aktien":                                    # internally the columns are called etf_a / etf_b
         df = df.rename(columns={"etf_a": "aktie_a", "etf_b": "aktie_b"})
-    if MARKET == "us":                                      # Umsaetze sind dort in Tsd. USD
+    if MARKET == "us":                                      # turnover there is in thousands of USD
         df = df.rename(columns={"umsatz_a_teur": "umsatz_a_tusd", "umsatz_b_teur": "umsatz_b_tusd"})
     kw = dict(sep=";", decimal=",", index=index, encoding="utf-8-sig", float_format="%.6g")
     try:
         df.to_csv(path, **kw)
-    except PermissionError:                          # z. B. Datei gerade in Excel geoeffnet
+    except PermissionError:                          # e.g. the file is currently open in Excel
         path = path.with_name(f"{path.stem}_{time.strftime('%H%M%S')}{path.suffix}")
         df.to_csv(path, **kw)
         log(f"  {name} ist gesperrt (in Excel geoeffnet?) - gespeichert als {path.name}")
@@ -288,7 +288,7 @@ def save_csv(df: pd.DataFrame, name: str, index: bool = False) -> Path:
 
 
 def read_user_csv(path: Path, **kw) -> pd.DataFrame:
-    """Eigene CSV-Dateien lesen: Trennzeichen ; oder , automatisch, UTF-8 oder Windows-Kodierung (Excel)."""
+    """Read own CSV files: separator ; or , automatically, UTF-8 or Windows encoding (Excel)."""
     raw = path.read_bytes()
     for enc in ("utf-8-sig", "cp1252"):
         try:
@@ -302,11 +302,11 @@ def read_user_csv(path: Path, **kw) -> pd.DataFrame:
 
 
 def load_results(name: str) -> pd.DataFrame:
-    """Hilfsfunktion fuers Notebook: load_results('current_candidates.csv')."""
+    """Helper function for the notebook: load_results('current_candidates.csv')."""
     return pd.read_csv(OUT_DIR / name, sep=";", decimal=",", encoding="utf-8-sig")
 
 
-# ------------------------------------------------------------------ Universum
+# ------------------------------------------------------------------ Universe
 def download_xetra_list(path: Path) -> None:
     import requests
 
@@ -369,7 +369,7 @@ def parse_xetra_list(path: Path, mode: str = "etf") -> pd.DataFrame:
 
 
 def load_us_universe(refresh: bool) -> pd.DataFrame:
-    """Alle an Nasdaq, NYSE und den uebrigen US-Boersen gelisteten Aktien bzw. ETFs (Listen von Nasdaq Trader)."""
+    """All stocks or ETFs listed on Nasdaq, NYSE and the other US exchanges (lists from Nasdaq Trader)."""
     import requests
 
     CACHE_DIR.mkdir(exist_ok=True)
@@ -391,11 +391,11 @@ def load_us_universe(refresh: bool) -> pd.DataFrame:
                           "etf": df["ETF"].str.strip().str.upper() == "Y",
                           "test": df["Test Issue"].str.strip().str.upper() == "Y",
                           "segment": df["Exchange"].str.strip() if "Exchange" in df.columns else "NASDAQ"})
-        if "Financial Status" in df.columns:                # Nasdaq: nur regulaer notierte Titel
+        if "Financial Status" in df.columns:                # Nasdaq: only regularly listed securities
             d = d[df["Financial Status"].str.strip().isin(["N", ""]).to_numpy()]
         frames.append(d)
     u = pd.concat(frames, ignore_index=True)
-    u = u[~u["test"] & u["symbol"].str.fullmatch(r"[A-Z]{1,5}(\.[A-Z])?")]     # keine $-, +-, =-Sonderlinien
+    u = u[~u["test"] & u["symbol"].str.fullmatch(r"[A-Z]{1,5}(\.[A-Z])?")]     # no $, +, = special lines
     u["ticker"] = u["symbol"].str.replace(".", "-", regex=False)               # Yahoo: BRK.B -> BRK-B
     u = u.drop_duplicates("ticker")
     n_all = len(u)
@@ -418,11 +418,11 @@ def load_us_universe(refresh: bool) -> pd.DataFrame:
 
 
 def us_prescreen(tickers: list[str], refresh: bool) -> list[str]:
-    """Vorauswahl nach Umsatz der letzten 3 Monate, damit nicht fuer ueber 10.000 Titel 10 Jahre geladen werden."""
+    """Preselection by turnover of the last 3 months, so that 10 years are not loaded for more than 10,000 securities."""
     cache = cache_file("prescreen")
     known = pd.DataFrame(columns=["ticker", "umsatz_usd"])
     if cache.exists() and not refresh and time.time() - cache.stat().st_mtime < 30 * 86400:
-        known = pd.read_csv(cache, keep_default_na=False, na_values=[""])   # Ticker "NA" ist kein fehlender Wert
+        known = pd.read_csv(cache, keep_default_na=False, na_values=[""])   # ticker "NA" is not a missing value
     have = set(known["ticker"])
     todo = [t for t in tickers if t not in have]
     if todo:
@@ -490,7 +490,7 @@ def load_universe(refresh: bool) -> pd.DataFrame:
     return etf[["ticker", "name", "isin", "typ", "segment"]].reset_index(drop=True)
 
 
-# ------------------------------------------------------------------ Kurse
+# ------------------------------------------------------------------ Prices
 def _download_chunk(chunk: list[str], start: str | None, period: str | None = None
                     ) -> tuple[pd.DataFrame, pd.DataFrame]:
     import yfinance as yf
@@ -501,7 +501,7 @@ def _download_chunk(chunk: list[str], start: str | None, period: str | None = No
             data = yf.download(chunk, auto_adjust=True, progress=False,
                                threads=True, group_by="column", **span)
             break
-        except Exception as e:  # Rate-Limit o. ae.
+        except Exception as e:  # rate limit or similar
             wait = 15 * (attempt + 1)
             log(f"  Download-Fehler ({type(e).__name__}), neuer Versuch in {wait}s")
             time.sleep(wait)
@@ -529,7 +529,7 @@ def load_prices(tickers: list[str], refresh: bool) -> tuple[pd.DataFrame, pd.Dat
             if not todo:
                 log(f"Kurse aus Cache (Stand {c['fetched']:%d.%m.%Y})")
                 return c["close"], c["volume"]
-            old, to_load = c, todo                     # nur neue Instrumente nachladen
+            old, to_load = c, todo                     # only load new instruments
             log(f"Kurse aus Cache (Stand {c['fetched']:%d.%m.%Y}), {len(todo)} neue Instrumente")
         else:
             log(f"Kurs-Cache ist {age_days} Tage alt, lade neu")
@@ -566,12 +566,12 @@ def load_prices(tickers: list[str], refresh: bool) -> tuple[pd.DataFrame, pd.Dat
     return close, volume
 
 
-# ------------------------------------------------------------------ Fondsvolumen (AUM)
+# ------------------------------------------------------------------ Fund volume (AUM)
 FUND_CCY_CANDIDATES = ["EUR", "USD", "GBP", "CHF", "JPY", "SEK", "NOK", "DKK", "PLN",
                        "AUD", "CAD", "HKD", "CNY", "INR", "KRW"]
 AUM_CACHE_COLUMNS = ["ticker", "total_assets", "currency", "nav", "price", "benchmark"]
 
-# Referenzindex aus Yahoos Fondsbeschreibung ("... aims to track the performance of the X Index")
+# reference index from Yahoo's fund description ("... aims to track the performance of the X Index")
 BENCHMARK_RE = re.compile(
     r"(?:track|replicat|reflect|mirror|return of|performance of)\w*\s+(?:the\s+)?"
     r"(?:(?:total\s+)?(?:return|performance)\s+of\s+)?(?:the\s+)?([^.;:()]{3,90}?\bIndex\b)",
@@ -585,7 +585,7 @@ _BENCH_DROP = re.compile(r"\b(THE|INDEX|NET|TOTAL|RETURN|NOTIONAL|GROSS|PRICE|TR
 
 
 def normalize_benchmark(text) -> str | None:
-    """'Nasdaq-100 Notional Net Total Return Index' -> 'NASDAQ100'. None, wenn kein bekannter Anbieter."""
+    """'Nasdaq-100 Notional Net Total Return Index' -> 'NASDAQ100'. None if no known provider."""
     if not isinstance(text, str) or not text.strip():
         return None
     t = text.upper().replace("&", "").replace("S P", "SP")
@@ -622,7 +622,7 @@ def _fetch_info(ticker: str) -> dict:
 
 
 def _usd_per_unit(currencies: list[str]) -> dict[str, float]:
-    """Wie viele USD eine Einheit der jeweiligen Waehrung wert ist (aktuell)."""
+    """How many USD one unit of the respective currency is worth (current)."""
     import yfinance as yf
 
     rates = {"USD": 1.0}
@@ -648,10 +648,10 @@ def _usd_per_unit(currencies: list[str]) -> dict[str, float]:
 
 def infer_fund_currency(nav: float, price: float, trade_ccy: str,
                         usd_per: dict[str, float]) -> tuple[str, str]:
-    """Waehrung, in der Yahoo NAV und Fondsvolumen angibt, aus dem Verhaeltnis NAV / Boersenkurs.
+    """Currency in which Yahoo states the NAV and fund volume, from the ratio NAV / exchange price.
 
-    Beispiel: Kurs 5,10 EUR, NAV 870 -> Verhaeltnis ~170 ~ EUR/JPY -> Fondswaehrung JPY.
-    Der Boersenkurs steht immer in der Handelswaehrung (bei .DE: EUR).
+    Example: price 5.10 EUR, NAV 870 -> ratio ~170 ~ EUR/JPY -> fund currency JPY.
+    The exchange price is always in the trading currency (for .DE: EUR).
     """
     if trade_ccy not in usd_per:
         return trade_ccy, "unsicher: kein Wechselkurs"
@@ -669,13 +669,13 @@ def infer_fund_currency(nav: float, price: float, trade_ccy: str,
 
 
 def load_aum_usd(tickers: list[str], refresh: bool) -> tuple[pd.Series, pd.DataFrame]:
-    """Fondsvolumen in USD je Ticker (NaN = unbekannt) und Details zur Waehrungsbestimmung."""
+    """Fund volume in USD per ticker (NaN = unknown) and details on the currency determination."""
     CACHE_DIR.mkdir(exist_ok=True)
     cache = cache_file("aum")
     known = pd.DataFrame(columns=AUM_CACHE_COLUMNS)
     if cache.exists() and not refresh and time.time() - cache.stat().st_mtime < 30 * 86400:
-        cached = pd.read_csv(cache, keep_default_na=False, na_values=[""])   # Ticker "NA" ist kein fehlender Wert
-        if set(AUM_CACHE_COLUMNS) <= set(cached.columns):     # alter Cache ohne NAV -> neu laden
+        cached = pd.read_csv(cache, keep_default_na=False, na_values=[""])   # ticker "NA" is not a missing value
+        if set(AUM_CACHE_COLUMNS) <= set(cached.columns):     # old cache without NAV -> reload
             known = cached
     todo = [t for t in tickers if t not in set(known["ticker"])]
     if todo:
@@ -716,7 +716,7 @@ def load_aum_usd(tickers: list[str], refresh: bool) -> tuple[pd.Series, pd.DataF
         meta.loc[o.index, "aum_quelle"] = "manuell (aum_overrides.csv)"
         log(f"{len(o)} AUM-Werte aus aum_overrides.csv uebernommen")
 
-    # Referenzindex: index_map.csv (manuell) > Yahoo-Fondsbeschreibung
+    # reference index: index_map.csv (manual) > Yahoo fund description
     meta["benchmark"] = known["benchmark"]
     meta["index_key"] = known["benchmark"].map(normalize_benchmark)
     meta["index_quelle"] = np.where(meta["index_key"].notna(), "Yahoo-Beschreibung", "unbekannt")
@@ -740,7 +740,7 @@ def load_aum_usd(tickers: list[str], refresh: bool) -> tuple[pd.Series, pd.DataF
     return meta["aum_usd"], meta
 
 
-# ------------------------------------------------------------------ Aktien: Marktkapitalisierung, Branche
+# ------------------------------------------------------------------ Stocks: market capitalization, industry
 STOCK_INFO_COLUMNS = ["ticker", "market_cap", "currency", "sector", "industry", "long_name"]
 
 
@@ -760,12 +760,12 @@ def _fetch_stock_info(ticker: str) -> dict:
 
 
 def load_stock_info(tickers: list[str], refresh: bool) -> tuple[pd.Series, pd.DataFrame]:
-    """Marktkapitalisierung in USD je Ticker (NaN = unbekannt) sowie Sektor / Branche laut Yahoo."""
+    """Market capitalization in USD per ticker (NaN = unknown) as well as sector / industry according to Yahoo."""
     CACHE_DIR.mkdir(exist_ok=True)
     cache = cache_file("stock_info")
     known = pd.DataFrame(columns=STOCK_INFO_COLUMNS)
     if cache.exists() and not refresh and time.time() - cache.stat().st_mtime < 30 * 86400:
-        cached = pd.read_csv(cache, keep_default_na=False, na_values=[""])   # Ticker "NA" ist kein fehlender Wert
+        cached = pd.read_csv(cache, keep_default_na=False, na_values=[""])   # ticker "NA" is not a missing value
         if set(STOCK_INFO_COLUMNS) <= set(cached.columns):
             known = cached
     todo = [t for t in tickers if t not in set(known["ticker"])]
@@ -789,7 +789,7 @@ def load_stock_info(tickers: list[str], refresh: bool) -> tuple[pd.Series, pd.Da
                          "industry": known["industry"], "long_name": known["long_name"]}, index=known.index)
     meta["aum_usd"] = meta["market_cap"] * meta["currency"].map(usd_per).astype(float)
 
-    # Gruppe fuer den Paarvergleich: Branche oder Sektor laut Yahoo, manuell ueberschreibbar
+    # group for the pair comparison: industry or sector according to Yahoo, can be overwritten manually
     col = {"industry": "industry", "sector": "sector"}.get(STOCK_GROUP_BY)
     meta["gruppe"] = meta[col] if col else ""
     manual = BASE_DIR / ("gruppen_us_aktien.csv" if MARKET == "us" else "gruppen_aktien.csv")
@@ -807,9 +807,9 @@ def load_stock_info(tickers: list[str], refresh: bool) -> tuple[pd.Series, pd.Da
     return meta["aum_usd"], meta
 
 
-# ------------------------------------------------------------------ Statistik
+# ------------------------------------------------------------------ Statistics
 def _test_chunk(pairs: np.ndarray, X: np.ndarray) -> list[tuple]:
-    """Engle-Granger in beide Richtungen fuer eine Liste von Spaltenpaaren (i, j) aus X."""
+    """Engle-Granger in both directions for a list of column pairs (i, j) from X."""
     out = []
     for i, j in pairs:
         x, y = X[:, i], X[:, j]
@@ -829,12 +829,12 @@ def _test_chunk(pairs: np.ndarray, X: np.ndarray) -> list[tuple]:
 
 
 def liquidity_stats(px: pd.DataFrame, vol: pd.DataFrame) -> pd.DataFrame:
-    """Je ETF im Fenster: Anteil 'stale' Tage (kein Handel / Kurs unveraendert) und Median-Umsatz in EUR."""
+    """Per ETF in the window: share of 'stale' days (no trading / price unchanged) and median turnover in EUR."""
     listed = px.ffill().notna()
     ret = px.pct_change(fill_method=None)
     v = vol.reindex_like(px)
     n_listed = listed.sum().replace(0, np.nan)
-    has_vol = (v > 0).sum() >= 0.05 * n_listed          # sonst liefert Yahoo keine Umsaetze
+    has_vol = (v > 0).sum() >= 0.05 * n_listed          # otherwise Yahoo provides no turnover
     traded = px.notna() & (ret.abs() > 0) & ((v > 0) | ~has_vol)
     stale = 1 - traded.where(listed).sum() / n_listed
     turnover = (px * v.fillna(0)).where(listed).median()
@@ -843,11 +843,11 @@ def liquidity_stats(px: pd.DataFrame, vol: pd.DataFrame) -> pd.DataFrame:
 
 
 def monthly_te_stats(lp: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
-    """Tracking Error p. a. (beta = 1) auf Monatsrenditen und relativ zur Volatilitaet (TE / sqrt(vol_a*vol_b))."""
+    """Tracking error p. a. (beta = 1) on monthly returns and relative to volatility (TE / sqrt(vol_a*vol_b))."""
     mret = lp.iloc[::21].diff().iloc[1:]
     cov = mret.cov(min_periods=12).to_numpy()
     var = np.diag(cov)
-    te = np.sqrt(np.clip((var[:, None] + var[None, :] - 2 * cov) * 12, 0, None))   # NaN bei zu wenig Monaten
+    te = np.sqrt(np.clip((var[:, None] + var[None, :] - 2 * cov) * 12, 0, None))   # NaN if there are too few months
     vol = np.sqrt(np.clip(var, 0, None) * 12)
     with np.errstate(divide="ignore", invalid="ignore"):
         rel = te / np.sqrt(np.outer(vol, vol))
@@ -855,10 +855,10 @@ def monthly_te_stats(lp: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
 
 
 def detect_price_errors(lp: pd.DataFrame) -> pd.DataFrame:
-    """Kursbloecke, die gegenueber aehnlichen ETFs springen und spaeter zurueckspringen (Yahoo-Datenfehler).
+    """Price blocks that jump relative to similar ETFs and later jump back (Yahoo data errors).
 
-    Vergleich je ETF mit dem Median der 5 am staerksten korrelierten ETFs (Korrelation >= PEER_MIN_CORR).
-    ETFs ohne solche Vergleichs-ETFs werden nicht geprueft.
+    Comparison per ETF with the median of the 5 most strongly correlated ETFs (correlation >= PEER_MIN_CORR).
+    ETFs without such comparison ETFs are not checked.
     """
     r = lp.diff()
     R = r.to_numpy()
@@ -871,7 +871,7 @@ def detect_price_errors(lp: pd.DataFrame) -> pd.DataFrame:
         if len(peers) == 0:
             continue
         with warnings.catch_warnings():
-            warnings.simplefilter("ignore", RuntimeWarning)       # Tage, an denen alle Peers NaN sind
+            warnings.simplefilter("ignore", RuntimeWarning)       # days on which all peers are NaN
             resid = R[:, k] - np.nanmedian(R[:, peers], axis=1)
         big = np.where(np.abs(np.nan_to_num(resid)) > JUMP_THRESHOLD)[0]
         for d in big:
@@ -886,7 +886,7 @@ def detect_price_errors(lp: pd.DataFrame) -> pd.DataFrame:
 
 def prepare_window(px: pd.DataFrame, vol: pd.DataFrame, names: pd.Series, tag: str = "",
                    quiet: bool = False):
-    """Abdeckung, Liquiditaet und Datenfehler pruefen. Gibt Log-Kurse der sauberen ETFs und Status je ETF zurueck."""
+    """Check coverage, liquidity and data errors. Returns log prices of the clean ETFs and the status per ETF."""
     liq = liquidity_stats(px, vol)
     cov = px.notna().mean()
     status = pd.Series("ok", index=px.columns, dtype=object)
@@ -905,7 +905,7 @@ def prepare_window(px: pd.DataFrame, vol: pd.DataFrame, names: pd.Series, tag: s
     if len(errors):
         errors.insert(1, "name", errors["ticker"].map(names))
     clean = status.index[status == "ok"]
-    if quiet:                                               # zweiter Durchlauf im selben Zeitraum
+    if quiet:                                               # second pass in the same period
         return lp[clean], liq, status
     save_csv(errors, f"data_errors{tag}.csv")
     log(f"    {int((cov >= MIN_COVERAGE).sum())} Instrumente mit genug Historie, {len(ok)} liquide "
@@ -923,19 +923,19 @@ def screen(px: pd.DataFrame, vol: pd.DataFrame, aum: pd.Series, names: pd.Series
            index_key: pd.Series | None = None, pair_list: pd.DataFrame | None = None,
            tag: str = "", spread_filter: bool = True, near_same: bool = False,
            groups: pd.Series | None = None) -> pd.DataFrame:
-    """Paare testen und als Rangliste (nach p-Wert) zurueckgeben.
+    """Test pairs and return them as a ranking (by p-value).
 
-    Ohne pair_list: alle Kombinationen (mit Korrelations-Vorfilter).
-    Mit pair_list (Spalten ticker_a, ticker_b, ...): nur diese Paare, ohne Korrelations-Vorfilter;
-    nicht testbare Paare erscheinen mit Begruendung in der Spalte 'status'.
-    spread_filter: Paare mit Spread-Breite unter MIN_SPREAD_STD nicht testen. Fuer die eigene
-    Paarliste ist der Filter aus (dort sind schmale Spreads, z. B. bei Anleihen, bewusst gewaehlt).
-    near_same: Auswertung 'fast gleiche Indizes'. Ohne pair_list werden genau die Paare getestet, die
-    nur wegen des Tracking Errors als 'gleicher Index' gelten und deren Spread mindestens
-    NEAR_SAME_MIN_SPREAD breit ist. Mit pair_list gilt der Tracking Error nicht als Ausschlussgrund.
-    groups: Gruppe je Ticker (Aktien: Branche / Sektor). Ohne pair_list werden nur Paare innerhalb
-    derselben Gruppe getestet. Im Aktien-Modus gibt es keinen Filter 'gleicher Index / gleicher Fonds'
-    (Stamm- und Vorzugsaktien desselben Unternehmens sind dort gerade erwuenscht).
+    Without pair_list: all combinations (with correlation pre-filter).
+    With pair_list (columns ticker_a, ticker_b, ...): only these pairs, without correlation pre-filter;
+    pairs that cannot be tested appear with a reason in the column 'status'.
+    spread_filter: do not test pairs with a spread width below MIN_SPREAD_STD. For the own
+    pair list the filter is off (narrow spreads, e.g. for bonds, are chosen deliberately there).
+    near_same: evaluation 'almost identical indices'. Without pair_list, exactly those pairs are tested that
+    count as 'same index' only because of the tracking error and whose spread is at least
+    NEAR_SAME_MIN_SPREAD wide. With pair_list, the tracking error is not a reason for exclusion.
+    groups: group per ticker (stocks: industry / sector). Without pair_list, only pairs within
+    the same group are tested. In stock mode there is no 'same index / same fund' filter
+    (common and preferred shares of the same company are exactly what is wanted there).
     """
     lp, liq, status = prepare_window(px, vol, names, tag, quiet=near_same)
     cols = lp.columns
@@ -945,7 +945,7 @@ def screen(px: pd.DataFrame, vol: pd.DataFrame, aum: pd.Series, names: pd.Series
     te, rel = monthly_te_stats(lp)
     key = index_key.reindex(cols).to_numpy(dtype=object) if index_key is not None else None
     aum_v = aum.reindex(cols).to_numpy(dtype=float)
-    # Spread-Breite vorab: Std des Residuums der Regression log(A) auf log(B) = std(A) * sqrt(1 - rho^2)
+    # spread width in advance: std of the residual of the regression log(A) on log(B) = std(A) * sqrt(1 - rho^2)
     lvl_corr = lp.corr().to_numpy() if len(cols) > 1 else np.ones((len(cols), len(cols)))
     lvl_std = lp.std().to_numpy()
 
@@ -955,11 +955,11 @@ def screen(px: pd.DataFrame, vol: pd.DataFrame, aum: pd.Series, names: pd.Series
         return lvl_std[i] * np.sqrt(np.clip(1 - lvl_corr[i, j] ** 2, 0, None))
 
     def same_reason(i, j) -> np.ndarray:
-        """Grund, warum ein Paar als 'gleicher Index / gleicher Fonds' gilt ('' = unterschiedlich)."""
+        """Reason why a pair counts as 'same index / same fund' ('' = different)."""
         reason = np.full(len(i), "", dtype=object)
         if MODE != "etf":
             return reason
-        reason[rel[i, j] < MIN_REL_TE] = TE_REASON                 # NaN-Vergleich = False
+        reason[rel[i, j] < MIN_REL_TE] = TE_REASON                 # NaN comparison = False
         if key is not None:
             ki, kj = key[i], key[j]
             same_key = np.array([isinstance(a, str) and a != "" and a == b for a, b in zip(ki, kj)], dtype=bool)
@@ -987,7 +987,7 @@ def screen(px: pd.DataFrame, vol: pd.DataFrame, aum: pd.Series, names: pd.Series
         min_corr = STOCK_MIN_RET_CORR if MODE == "aktien" else MIN_RET_CORR
         in_corr = (c >= min_corr) & (c <= MAX_RET_CORR)
         n_all = len(iu)
-        if groups is not None:                              # nur Paare innerhalb derselben Gruppe
+        if groups is not None:                              # only pairs within the same group
             g = groups.reindex(cols).to_numpy(dtype=object)
             same_group = np.array([isinstance(x, str) and x != "" and x == y for x, y in zip(g[iu], g[ju])],
                                   dtype=bool)
@@ -1049,7 +1049,7 @@ def screen(px: pd.DataFrame, vol: pd.DataFrame, aum: pd.Series, names: pd.Series
         chunks = np.array_split(pairs, n_chunks)
         try:
             out = Parallel(n_jobs=N_JOBS)(delayed(_test_chunk)(ch, X) for ch in chunks)
-        except Exception as e:                              # z. B. Probleme mit Prozess-Start unter Windows
+        except Exception as e:                              # e.g. problems with process start under Windows
             log(f"    Parallele Berechnung fehlgeschlagen ({type(e).__name__}: {e}); rechne nacheinander weiter")
             out = [_test_chunk(ch, X) for ch in chunks]
         res = [r for chunk in out for r in chunk]
@@ -1064,7 +1064,7 @@ def screen(px: pd.DataFrame, vol: pd.DataFrame, aum: pd.Series, names: pd.Series
     df = df.sort_values("p_value").reset_index(drop=True)
     df.insert(0, "rang", np.arange(1, len(df) + 1))
 
-    if info is not None:                                    # Reihenfolge der Liste beibehalten, Infos ergaenzen
+    if info is not None:                                    # keep the order of the list, add information
         df = info.merge(df.drop(columns=["i", "j", "rang"]), left_on=["ticker_a", "ticker_b"],
                         right_on=["etf_a", "etf_b"], how="left").drop(columns=["etf_a", "etf_b"])
         df = df.rename(columns={"ticker_a": "etf_a", "ticker_b": "etf_b"})
@@ -1095,19 +1095,19 @@ def screen(px: pd.DataFrame, vol: pd.DataFrame, aum: pd.Series, names: pd.Series
                         "ret_corr", "te_monthly", "rel_te", "aum_a_musd", "aum_b_musd", "umsatz_a_teur", "umsatz_b_teur",
                         "haeufigkeit_a", "haeufigkeit_b"]
     out = df[[c for c in cols_out if c in df.columns]]
-    if MODE == "aktien":                                    # bei Aktien ist die Groesse die Marktkapitalisierung
+    if MODE == "aktien":                                    # for stocks the size is the market capitalization
         out = out.rename(columns={"aum_a_musd": "marktkap_a_musd", "aum_b_musd": "marktkap_b_musd"})
     return out
 
 
-# ------------------------------------------------------------------ Ablauf
+# ------------------------------------------------------------------ Procedure
 def clean_prices(close: pd.DataFrame) -> pd.DataFrame:
     close = close.sort_index()
     close = close[close.index.dayofweek < 5]
     close = close.where(close > 0)
-    # Feiertage / Datenluecken entfernen: Tage, an denen weniger als die Haelfte der ETFs,
-    # die zu diesem Zeitpunkt schon gelistet waren, einen Kurs hat. (Nicht am heutigen
-    # Universum messen - sonst fallen alle fruehen Jahre weg, in denen es viele ETFs noch nicht gab.)
+    # remove holidays / data gaps: days on which fewer than half of the ETFs
+    # that were already listed at that time have a price. (Do not measure against today's
+    # universe - otherwise all early years drop out in which many ETFs did not yet exist.)
     listed = close.ffill().notna().sum(axis=1)
     quoted = close.notna().sum(axis=1)
     close = close[(listed > 0) & (quoted >= 0.5 * listed)]
@@ -1115,11 +1115,11 @@ def clean_prices(close: pd.DataFrame) -> pd.DataFrame:
 
 
 def load_pair_list(path: Path) -> pd.DataFrame:
-    """Eigene Paarliste: Spalten ticker_a;ticker_b (+ beliebige weitere, z. B. kategorie;begruendung).
+    """Own pair list: columns ticker_a;ticker_b (+ any others, e.g. kategorie;begruendung).
 
-    Zeilen mit # am Anfang sind Kommentare. Trennzeichen (; , oder Tab) wird aus der Kopfzeile erkannt.
-    Enthaelt die letzte Spalte selbst Trennzeichen (z. B. ein Semikolon im Begruendungstext),
-    bleiben sie Teil des Textes und verschieben keine Spalten.
+    Lines starting with # are comments. The separator (; , or tab) is detected from the header line.
+    If the last column itself contains separators (e.g. a semicolon in the justification text),
+    they remain part of the text and do not shift any columns.
     """
     raw = path.read_bytes()
     for enc in ("utf-8-sig", "cp1252"):
@@ -1140,7 +1140,7 @@ def load_pair_list(path: Path) -> pd.DataFrame:
         parts = [p.strip().strip('"') for p in ln.split(sep, len(header) - 1)]
         rows.append((parts + [""] * len(header))[:len(header)])
     pl = pd.DataFrame(rows, columns=header)
-    if MARKET == "us":                                      # Yahoo-Schreibweise: BRK.B -> BRK-B
+    if MARKET == "us":                                      # Yahoo notation: BRK.B -> BRK-B
         valid = r"[A-Z]{1,5}(-[A-Z])?"
         for c in ("ticker_a", "ticker_b"):
             pl[c] = pl[c].str.upper().str.replace(".", "-", regex=False)
@@ -1158,7 +1158,7 @@ def load_pair_list(path: Path) -> pd.DataFrame:
 
 
 def select_candidates(stage1: pd.DataFrame) -> pd.DataFrame:
-    """Kandidaten fuer Stufe 2: beste Paare aus Stufe 1 (nach p-Wert), beta > 0, begrenzt je ETF."""
+    """Candidates for stage 2: best pairs from stage 1 (by p-value), beta > 0, limited per ETF."""
     ok = stage1[stage1["p_value"].notna() & (stage1["p_value"] <= STAGE1_MAX_P) & (stage1["beta"] > 0)]
     ok = ok.sort_values("p_value")
     used: dict[str, int] = {}
@@ -1184,10 +1184,10 @@ def select_candidates(stage1: pd.DataFrame) -> pd.DataFrame:
 
 def run_two_stage(close, volume, aum, names, index_key, pair_list, mark_small, mode, f0, last,
                   near_same: bool = False, groups: pd.Series | None = None) -> None:
-    """Stufe 1: Kandidaten im frueheren Zeitraum auswaehlen. Stufe 2: nur diese im spaeteren Zeitraum testen.
+    """Stage 1: select candidates in the earlier period. Stage 2: test only these in the later period.
 
-    Die Zeitraeume ueberlappen nicht. Die Korrektur fuer viele Tests bezieht sich in Stufe 2 nur auf
-    die wenigen Kandidaten, die Daten der Stufe 2 wurden fuer die Auswahl nicht verwendet.
+    The periods do not overlap. In stage 2, the correction for many tests refers only to
+    the few candidates; the data of stage 2 were not used for the selection.
     """
     s0 = f0 - pd.DateOffset(years=STAGE1_YEARS)
     w1 = (close.index > s0) & (close.index <= f0)
@@ -1200,7 +1200,7 @@ def run_two_stage(close, volume, aum, names, index_key, pair_list, mark_small, m
     if near_same:
         mode = "fast gleiche Indizes"
     log(f"STUFE 1 - Auswahl ({mode}): {s0:%d.%m.%Y} - {f0:%d.%m.%Y}")
-    spread_filter = pair_list is None and not near_same    # eigene Paarliste / fast gleiche: kein Spread-Filter
+    spread_filter = pair_list is None and not near_same    # own pair list / almost identical: no spread filter
     stage1 = mark_small(screen(close[w1], volume[w1], aum, names, index_key, pair_list, tag="_stufe1",
                                spread_filter=spread_filter, near_same=near_same, groups=groups))
     save_csv(stage1, f"ranking{sfx}_stufe1.csv")
@@ -1266,7 +1266,7 @@ def run_screen(universe: pd.DataFrame, close: pd.DataFrame, volume: pd.DataFrame
     min_size = MIN_MARKET_CAP_USD if stocks else MIN_AUM_USD
     close = clean_prices(close)
 
-    # --- Groessenfilter: Marktkapitalisierung (Aktien) bzw. Fondsvolumen (ETFs; ETCs optional ausgenommen)
+    # --- size filter: market capitalization (stocks) or fund volume (ETFs; ETCs optionally excepted)
     min_rows = int(252 * FORMATION_YEARS * MIN_COVERAGE)
     has_hist = close.columns[close.notna().sum() >= min_rows]
     aum = aum.reindex(close.columns)
@@ -1274,7 +1274,7 @@ def run_screen(universe: pd.DataFrame, close: pd.DataFrame, volume: pd.DataFrame
     save_csv(universe[universe["ticker"].isin(missing)], "missing_marktkap.csv" if stocks else "missing_aum.csv")
     exempt = typ.reindex(close.columns).eq("ETC") & (not AUM_FILTER_ETC)
     aum_ok = (aum >= min_size) | exempt
-    if KEEP_MISSING_AUM or pair_list is not None:          # eigene Paare: fehlendes AUM nicht ausschliessen
+    if KEEP_MISSING_AUM or pair_list is not None:          # own pairs: do not exclude missing AUM
         aum_ok = aum_ok | aum.isna()
     tradable = [t for t in has_hist if aum_ok.get(t, False)]
     log(f"Universum: {close.shape[1]} Instrumente mit Kursen, {len(has_hist)} mit >= {FORMATION_YEARS} J. "
@@ -1300,7 +1300,7 @@ def run_screen(universe: pd.DataFrame, close: pd.DataFrame, volume: pd.DataFrame
         save_csv(check.reset_index(names="ticker"), "etf_details.csv")
     save_csv(uni_out, "universe_used.csv")
 
-    if pair_list is not None:                              # Paare mit zu kleinem Fonds markieren
+    if pair_list is not None:                              # mark pairs with a fund that is too small
         small = set(has_hist) - set(tradable)
         pair_list = pair_list.copy()
         pair_list["_klein"] = [", ".join(t for t in (a, b) if t in small)
@@ -1308,7 +1308,7 @@ def run_screen(universe: pd.DataFrame, close: pd.DataFrame, volume: pd.DataFrame
     close = close[tradable]
     volume = volume.reindex(index=close.index, columns=close.columns)
 
-    # --- Suche: letzte FORMATION_YEARS Jahre bis zum letzten Kursdatum
+    # --- search: last FORMATION_YEARS years up to the last price date
     last = close.index[-1]
     f0 = last - pd.DateOffset(years=FORMATION_YEARS)
     mode = "Paarliste" if pair_list is not None else (
@@ -1331,7 +1331,7 @@ def run_screen(universe: pd.DataFrame, close: pd.DataFrame, volume: pd.DataFrame
 
     if two_stage:
         run_two_stage(close, volume, aum, names, index_key, pl, mark_small, mode, f0, last, groups=groups)
-        if pair_list is None and not stocks:               # zusaetzlich: fast gleiche Indizes, zweistufig
+        if pair_list is None and not stocks:               # additionally: almost identical indices, two-stage
             run_two_stage(close, volume, aum, names, index_key, None, mark_small, mode, f0, last,
                           near_same=True)
         return
@@ -1346,7 +1346,7 @@ def run_screen(universe: pd.DataFrame, close: pd.DataFrame, volume: pd.DataFrame
         save_csv(ranking, "ranking.csv")
         save_csv(ranking[ranking["signifikant"]], "cointegrated_pairs.csv")
 
-    # --- Zusammenfassung
+    # --- summary
     tested = ranking[ranking["p_value"].notna()]
     print()
     print("=" * 78)
@@ -1366,7 +1366,7 @@ def run_screen(universe: pd.DataFrame, close: pd.DataFrame, volume: pd.DataFrame
         print(f"\nNicht testbar: {int((ranking['status'] != 'getestet').sum())} Paare "
               f"(Grund in ranking_paarliste.csv, Spalte 'status')")
 
-    # --- Zusatzauswertung (nur ETFs): fast gleiche Indizes mit breitem Spread (eigene Rangliste)
+    # --- additional evaluation (ETFs only): almost identical indices with a wide spread (separate ranking)
     if pair_list is None and not stocks:
         near = screen(close[in_form], volume[in_form], aum, names, index_key, None, near_same=True)
         save_csv(near, "ranking_fast_gleich.csv")
@@ -1387,14 +1387,14 @@ def run_screen(universe: pd.DataFrame, close: pd.DataFrame, volume: pd.DataFrame
     print(f"\nErgebnisse: {OUT_DIR}")
 
 
-# ------------------------------------------------------------------ Zusatzauswertung: Mean Reversion
+# ------------------------------------------------------------------ Additional evaluation: mean reversion
 def mr_pair_series(la: np.ndarray, lb: np.ndarray) -> dict:
-    """Handelsregel fuer ein Paar ueber die ganze Historie. la, lb: Log-Kurse (NaN erlaubt).
+    """Trading rule for a pair over the whole history. la, lb: log prices (NaN allowed).
 
-    Spread = log(A) - log(B), also gleicher Euro-Betrag long und short. z misst den Abstand vom
-    gleitenden Mittel der letzten MR_LOOKBACK Tage in Standardabweichungen. Die Position von Tag t
-    wird mit dem Schlusskurs von t festgelegt und verdient erst die Rendite von t+1 (kein Look-Ahead).
-    Rendite je Tag bezogen auf das eingesetzte Kapital (je die Haelfte long und short).
+    Spread = log(A) - log(B), i.e. the same euro amount long and short. z measures the distance from the
+    moving average of the last MR_LOOKBACK days in standard deviations. The position of day t
+    is set with the closing price of t and only earns the return of t+1 (no look-ahead).
+    Return per day relative to the capital employed (half each long and short).
     """
     s = pd.Series(la - lb)
     m = s.rolling(MR_LOOKBACK, min_periods=MR_LOOKBACK).mean()
@@ -1405,7 +1405,7 @@ def mr_pair_series(la: np.ndarray, lb: np.ndarray) -> dict:
     cur, held = 0, 0
     for t in range(n):
         zt = z[t]
-        if zt != zt:                                        # NaN: kein Kurs -> glattstellen
+        if zt != zt:                                        # NaN: no price -> close out
             cur, held = 0, 0
         elif cur == 0:
             if zt > MR_ENTRY_Z:
@@ -1428,7 +1428,7 @@ def mr_pair_series(la: np.ndarray, lb: np.ndarray) -> dict:
 
 
 def mr_stats(net: np.ndarray, pos: np.ndarray, gross: np.ndarray | None = None) -> dict:
-    """Kennzahlen eines Zeitraums: Sharpe (annualisiert), Rendite p. a., Trades, Trefferquote, Haltedauer."""
+    """Metrics of a period: Sharpe (annualized), return p. a., trades, hit rate, holding period."""
     out = {"sharpe": np.nan, "rendite_pa": np.nan, "trades": 0, "trefferquote": np.nan, "haltedauer": np.nan}
     if len(net) < 20:
         return out
@@ -1438,7 +1438,7 @@ def mr_stats(net: np.ndarray, pos: np.ndarray, gross: np.ndarray | None = None) 
     if gross is not None:
         gs = gross.std()
         out["sharpe_vor_kosten"] = float(np.sqrt(252) * gross.mean() / gs) if gs > 0 else np.nan
-    # einzelne Trades: Bloecke mit Position != 0; die Rendite faellt jeweils am Folgetag an
+    # individual trades: blocks with position != 0; the return accrues on the following day in each case
     prev = np.concatenate([[0.0], pos[:-1]])
     start = np.where((pos != 0) & (prev != pos))[0]
     pnl, hold = [], []
@@ -1457,7 +1457,7 @@ def mr_stats(net: np.ndarray, pos: np.ndarray, gross: np.ndarray | None = None) 
 
 def mr_candidates(px: pd.DataFrame, vol: pd.DataFrame, names: pd.Series, groups: pd.Series | None,
                   pair_list: pd.DataFrame | None) -> list[tuple[str, str]]:
-    """Zulaessige Paare eines Auswahlzeitraums: liquide Titel, gleiche Gruppe bzw. genug Korrelation."""
+    """Admissible pairs of a selection period: liquid securities, same group or enough correlation."""
     lp, _, _ = prepare_window(px, vol, names, quiet=True)
     cols = list(lp.columns)
     ok = set(cols)
@@ -1473,7 +1473,7 @@ def mr_candidates(px: pd.DataFrame, vol: pd.DataFrame, names: pd.Series, groups:
     if groups is not None:
         g = groups.reindex(cols).to_numpy(dtype=object)
         keep &= np.array([isinstance(x, str) and x != "" and x == y for x, y in zip(g[iu], g[ju])], dtype=bool)
-    if MODE == "etf":                                       # (fast) gleiche Indizes: nur Kursrauschen
+    if MODE == "etf":                                       # (almost) identical indices: only price noise
         _, rel = monthly_te_stats(lp)
         keep &= ~(rel[iu, ju] < MIN_REL_TE)
     order = np.argsort(-c[keep])[:MR_MAX_PAIRS]
@@ -1482,10 +1482,10 @@ def mr_candidates(px: pd.DataFrame, vol: pd.DataFrame, names: pd.Series, groups:
 
 def mr_top_development(pairs: pd.DataFrame, series: dict, idx: pd.DatetimeIndex, windows: list,
                        r_all: pd.Series) -> None:
-    """Die besten Paare (nach Sharpe im Gesamtzeitraum) Jahr fuer Jahr: Rendite, Sharpe, Trend.
+    """The best pairs (by Sharpe over the whole period) year by year: return, Sharpe, trend.
 
-    Die Paare sind im Rueckblick ausgewaehlt. Zum Vergleich stehen darunter der Durchschnitt dieser
-    Paare und der Durchschnitt aller zulaessigen Paare.
+    The pairs are selected in hindsight. For comparison, the average of these
+    pairs and the average of all admissible pairs are shown below.
     """
     top = pairs[pairs["sharpe_nach_kosten"].notna()].head(MR_SHOW_TOP)
     if top.empty:
@@ -1564,7 +1564,7 @@ def mr_top_development(pairs: pd.DataFrame, series: dict, idx: pd.DatetimeIndex,
           "nachlaesst, ist ein Warnsignal; ein Paar, das sich haelt, ist noch kein Beweis.")
     mr_top_chart(curves, out, n_recent, windows)
 
-    # Gegenprobe ohne Rueckblick: die besten Paare der frueheren Jahre - wie liefen sie danach?
+    # cross-check without hindsight: the best pairs of the earlier years - how did they do afterwards?
     if n_recent and early.sum() > 250:
         cand = sorted(((sharpe(v["net"][early]), k) for k, v in series.items()
                        if np.count_nonzero(v["pos"][early]) >= 20), key=lambda x: -(x[0] if x[0] == x[0] else -9))
@@ -1597,7 +1597,7 @@ def mr_top_development(pairs: pd.DataFrame, series: dict, idx: pd.DatetimeIndex,
 
 
 def mr_top_chart(curves: pd.DataFrame, table: pd.DataFrame, n_recent: int, windows: list) -> None:
-    """Aufgelaufene Rendite der besten Paare als kleine Einzeldiagramme -> mr_top_paare.png."""
+    """Cumulative return of the best pairs as small individual charts -> mr_top_paare.png."""
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -1659,7 +1659,7 @@ def mr_top_chart(curves: pd.DataFrame, table: pd.DataFrame, n_recent: int, windo
 
 def run_mean_reversion(universe: pd.DataFrame, close: pd.DataFrame, volume: pd.DataFrame, aum: pd.Series,
                        aum_meta: pd.DataFrame | None = None, pair_list: pd.DataFrame | None = None) -> None:
-    """Rollierender Test: Paare anhand der Vorjahre auswaehlen, im Folgejahr handeln (nach Kosten)."""
+    """Rolling test: select pairs based on the previous years, trade them in the following year (after costs)."""
     OUT_DIR.mkdir(exist_ok=True)
     stocks = MODE == "aktien"
     names = universe.set_index("ticker")["name"]
@@ -1674,8 +1674,8 @@ def run_mean_reversion(universe: pd.DataFrame, close: pd.DataFrame, volume: pd.D
     if KEEP_MISSING_AUM or pair_list is not None:
         size_ok = size_ok | aum.isna()
     close = close.loc[:, size_ok.reindex(close.columns, fill_value=False)]
-    # Brueche in den Kursdaten: Yahoo verkettet z. B. alte und neue Aktien nach einer Insolvenz. Ein solcher
-    # Sprung waere im Test ein riesiger Scheingewinn, deshalb zaehlt nur die Historie ab dem letzten Bruch.
+    # breaks in the price data: Yahoo concatenates e.g. old and new shares after an insolvency. Such a
+    # jump would be a huge fictitious profit in the test, therefore only the history from the last break counts.
     step = np.log(close.ffill()).diff().abs() > np.log(MR_MAX_DAILY_MOVE)
     breaks = []
     close = close.copy()
@@ -1693,7 +1693,7 @@ def run_mean_reversion(universe: pd.DataFrame, close: pd.DataFrame, volume: pd.D
     idx = close.index
     first, last = idx[0], idx[-1]
 
-    # Testjahre vom letzten Datum rueckwaerts; davor jeweils MR_FORMATION_YEARS Auswahlzeitraum
+    # test years backwards from the last date; before each, MR_FORMATION_YEARS selection period
     windows = []
     t1 = last
     while True:
@@ -1779,7 +1779,7 @@ def run_mean_reversion(universe: pd.DataFrame, close: pd.DataFrame, volume: pd.D
     save_csv(pd.DataFrame({"alle_paare": r_all, "auswahl": r_top}).rename_axis("datum"),
              "mr_portfolio_renditen.csv", index=True)
 
-    # Kennzahlen je Paar ueber den gesamten Testzeitraum (alle Paare, die je zulaessig waren)
+    # metrics per pair over the whole test period (all pairs that were ever admissible)
     in_all = idx > windows[0][1]
     n_years = max(in_all.sum() / 252, 1e-9)
     rows = []
@@ -1835,16 +1835,16 @@ def run_mean_reversion(universe: pd.DataFrame, close: pd.DataFrame, volume: pd.D
           f"            mr_top_paare.csv, mr_top_paare_verlauf.csv, mr_top_paare.png, mr_top_paare_gegenprobe.csv)")
 
 
-# ------------------------------------------------------------------ Demo-Daten
+# ------------------------------------------------------------------ Demo data
 def make_demo_data(seed: int = 7):
-    """Synthetische 'ETFs' zum Testen der Pipeline:
-    CA/CB  6 echte cointegrierte Paare (sollen gefunden werden)
-    RW     30 nur korrelierte Titel (sollen NICHT gefunden werden)
-    SA/SB  4 cointegrierte Paare mit zu kleinem Fondsvolumen (AUM-Filter)
-    NQ     3 ETFs auf denselben Index mit leichtem Kursrauschen (Tracking-Error-Filter)
-    ST     1 selten gehandelter Zwilling von CB0 mit veralteten Kursen (Liquiditaetsfilter)
-    JX/JY  gleicher Referenzindex laut Metadaten, aber verrauscht (Index-Filter)
-    DE0    Kopie von CA1 mit fehlerhaftem Kursblock (Datenfehler-Erkennung)
+    """Synthetic 'ETFs' for testing the pipeline:
+    CA/CB  6 real cointegrated pairs (should be found)
+    RW     30 merely correlated securities (should NOT be found)
+    SA/SB  4 cointegrated pairs with a fund volume that is too small (AUM filter)
+    NQ     3 ETFs on the same index with slight price noise (tracking error filter)
+    ST     1 rarely traded twin of CB0 with stale prices (liquidity filter)
+    JX/JY  same reference index according to metadata, but noisy (index filter)
+    DE0    copy of CA1 with a faulty price block (data error detection)
     """
     rng = np.random.default_rng(seed)
     idx = pd.bdate_range(end=pd.Timestamp.today().normalize(), periods=252 * HISTORY_YEARS)
@@ -1853,7 +1853,7 @@ def make_demo_data(seed: int = 7):
     series, names, aum, keys = {}, {}, {}, {}
 
     def add(t, logp, name, a, key=None):
-        a = a * (1 + 0.0007 * len(series))                  # eindeutiges Fondsvolumen je Demo-ETF
+        a = a * (1 + 0.0007 * len(series))                  # unique fund volume per demo ETF
         series[t], names[t], aum[t], keys[t] = np.exp(logp), name, a, key
 
     def ou(half_life, sigma):
@@ -1863,33 +1863,33 @@ def make_demo_data(seed: int = 7):
             x[t] = x[t - 1] * (1 - theta) + rng.normal(0, sigma)
         return x
 
-    for g in range(6):                                   # cointegrierte Paare
+    for g in range(6):                                   # cointegrated pairs
         base = market + np.cumsum(rng.normal(0, 0.007, n))
         beta = rng.uniform(0.7, 1.4)
         add(f"CB{g}.DE", base + rng.normal(0, 0.0005, n), f"DEMO COINT B{g}", 5e8)
         add(f"CA{g}.DE", 0.3 + beta * base + ou(rng.uniform(8, 30), 0.004), f"DEMO COINT A{g}", 5e8)
-    for g in range(30):                                   # nur korreliert, nicht cointegriert
+    for g in range(30):                                   # only correlated, not cointegrated
         add(f"RW{g}.DE", market + np.cumsum(rng.normal(0, 0.006, n)), f"DEMO RANDOM {g}", 3e8)
-    for g in range(4):                                    # cointegriert, aber zu klein (AUM)
+    for g in range(4):                                    # cointegrated, but too small (AUM)
         base = market + np.cumsum(rng.normal(0, 0.007, n))
         add(f"SB{g}.DE", base, f"DEMO SMALL B{g}", 4e7)
         add(f"SA{g}.DE", base + ou(14, 0.004), f"DEMO SMALL A{g}", 4e7)
-    nq = market + np.cumsum(rng.normal(0.0002, 0.008, n))  # gleicher Index, 3 Anbieter
+    nq = market + np.cumsum(rng.normal(0.0002, 0.008, n))  # same index, 3 providers
     for g in range(3):
         add(f"NQ{g}.DE", 0.5 * g + nq + ou(6, 0.0015), f"DEMO NASDAQ ETF {g}", 2e9)
-    stale = np.log(series["CB0.DE"]) + ou(10, 0.003)       # selten gehandelt: Kurs nur an 40 % der Tage
+    stale = np.log(series["CB0.DE"]) + ou(10, 0.003)       # rarely traded: price only on 40 % of the days
     stale[rng.random(n) > 0.4] = np.nan
     add("ST0.DE", pd.Series(stale).ffill().bfill().to_numpy(), "DEMO ILLIQUIDE", 3e8)
-    bad = np.log(series["CA1.DE"]).copy()                   # Datenfehler: Kursblock +13 % fuer 20 Tage
+    bad = np.log(series["CA1.DE"]).copy()                   # data error: price block +13 % for 20 days
     bad[n - 120:n - 100] += 0.13
     add("DE0.DE", bad, "DEMO DATENFEHLER", 5e8)
-    jp = market + np.cumsum(rng.normal(0, 0.008, n))       # gleicher Index laut Yahoo, verrauscht
+    jp = market + np.cumsum(rng.normal(0, 0.008, n))       # same index according to Yahoo, noisy
     add("JX0.DE", jp + ou(12, 0.006), "DEMO JAPAN A", 1e9, "MSCIJAPAN")
     add("JY0.DE", jp + ou(12, 0.006), "DEMO JAPAN B", 1e9, "MSCIJAPAN")
 
     close = pd.DataFrame(series, index=idx)
-    close.iloc[: 252 * 4, close.columns.get_loc("RW29.DE")] = np.nan   # spaeter aufgelegter ETF
-    volume = (1.2 * max(min_turnover(), 250_000) / close).round()      # Umsatz knapp ueber der Schwelle
+    close.iloc[: 252 * 4, close.columns.get_loc("RW29.DE")] = np.nan   # ETF launched later
+    volume = (1.2 * max(min_turnover(), 250_000) / close).round()      # turnover just above the threshold
     unchanged = close["ST0.DE"].diff() == 0
     volume.loc[unchanged, "ST0.DE"] = 0
     volume["ST0.DE"] = volume["ST0.DE"] * 0.2
@@ -1899,7 +1899,7 @@ def make_demo_data(seed: int = 7):
     meta = pd.DataFrame({"total_assets": aum_s, "fund_ccy": "EUR", "aum_quelle": "demo",
                          "aum_usd": aum_s, "benchmark": pd.Series(keys), "index_key": pd.Series(keys),
                          "index_quelle": "demo"})
-    if MODE == "aktien":                                    # Demo-Branchen: Paar-Partner in derselben Branche
+    if MODE == "aktien":                                    # demo industries: pair partners in the same industry
         tick = list(names)
 
         def demo_group(t: str) -> str:
@@ -1920,17 +1920,17 @@ def make_demo_data(seed: int = 7):
 # ------------------------------------------------------------------ main
 def main() -> None:
     global OUT_DIR, MODE, MARKET, MR_COST_BPS
-    ap = argparse.ArgumentParser(description="Screener fuer cointegrierte Paare (Aktien oder ETFs, Xetra oder USA)")
-    ap.add_argument("--etf", action="store_true", help="ETF/ETC-Modus statt Aktien")
-    ap.add_argument("--us", action="store_true", help="US-Markt (Nasdaq, NYSE u. a.) statt Xetra")
-    ap.add_argument("--demo", action="store_true", help="Probelauf mit synthetischen Daten")
-    ap.add_argument("--refresh", action="store_true", help="Cache ignorieren und alles neu laden")
+    ap = argparse.ArgumentParser(description="Screener for cointegrated pairs (stocks or ETFs, Xetra or USA)")
+    ap.add_argument("--etf", action="store_true", help="ETF/ETC mode instead of stocks")
+    ap.add_argument("--us", action="store_true", help="US market (Nasdaq, NYSE etc.) instead of Xetra")
+    ap.add_argument("--demo", action="store_true", help="trial run with synthetic data")
+    ap.add_argument("--refresh", action="store_true", help="ignore the cache and reload everything")
     ap.add_argument("--pairs", nargs="?", const="", default=None, metavar="DATEI",
-                    help="nur die Paare aus DATEI testen (Standard: pairs_aktien.csv, mit --etf pairs.csv)")
+                    help="test only the pairs from DATEI (default: pairs_aktien.csv, with --etf pairs.csv)")
     ap.add_argument("--two-stage", "--zweistufig", dest="two_stage", action="store_true",
-                    help="Kandidaten im frueheren Zeitraum auswaehlen, im spaeteren bestaetigen")
+                    help="select candidates in the earlier period, confirm them in the later one")
     ap.add_argument("--mean-reversion", "--mr", dest="mean_reversion", action="store_true",
-                    help="Zusatzauswertung: Rueckkehr zum gleitenden Mittel, mit Kosten, rollierend getestet")
+                    help="additional evaluation: return to the moving average, with costs, tested on a rolling basis")
     args = ap.parse_args()
 
     MODE = "etf" if args.etf else "aktien"
@@ -1960,7 +1960,7 @@ def main() -> None:
     else:
         universe = load_universe(args.refresh)
         tickers = universe["ticker"].tolist()
-        if pair_list is not None:                          # Ticker der Liste, die nicht im Universum sind
+        if pair_list is not None:                          # tickers of the list that are not in the universe
             extra = sorted((set(pair_list["ticker_a"]) | set(pair_list["ticker_b"])) - set(tickers))
             if extra:
                 log(f"{len(extra)} Ticker aus der Paarliste stehen nicht in der {'US' if us else 'Xetra'}-Liste: "
@@ -1969,9 +1969,9 @@ def main() -> None:
                                                               "typ": "Aktie" if stocks else "ETF",
                                                               "segment": ""})], ignore_index=True)
                 tickers += extra
-        if us and pair_list is not None:                   # Paarliste: nur deren Titel laden (schnell)
+        if us and pair_list is not None:                   # pair list: load only their securities (fast)
             tickers = sorted(set(pair_list["ticker_a"]) | set(pair_list["ticker_b"]))
-        elif us:                                           # lange Historie nur fuer ausreichend liquide Titel
+        elif us:                                           # long history only for sufficiently liquid securities
             tickers = us_prescreen(tickers, args.refresh)
         close, volume = load_prices(tickers, args.refresh)
         min_rows = int(252 * FORMATION_YEARS * MIN_COVERAGE)

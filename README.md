@@ -1,76 +1,76 @@
-# Trading-Modelle
+# Trading Models
 
-Zwei regelbasierte Handelsmodelle in Python, inspiriert durch Ernest P. Chan,
-*Quantitative Trading*. Beide Modelle haben eine Rückrechnung (Backtest) und einen Protokollmodus fürs
-Paper Trading.
+Two rule-based trading models in Python, inspired by Ernest P. Chan,
+*Quantitative Trading*. Both models have a backtest and a protocol mode for
+paper trading.
 
-> **Keine Anlageberatung.** Der Code dient der Forschung und dem Lernen. Rückrechnungen sind keine
-> Garantie für künftige Ergebnisse. Wer damit handelt, tut das auf eigenes Risiko.
+> **No investment advice.** The code serves research and learning. Backtests are no
+> guarantee of future results. Anyone who trades with it does so at their own risk.
 
-## Modelle
+## Models
 
-| Ordner | Modell | Markt |
+| Folder | Model | Market |
 |---|---|---|
-| `hgv_mgm_modell/` | **Mean Reversion mit Aktienpaaren.** Handelt den Spread von 15 Paaren nach seinem z-Score. Konto mit ganzen Stücken, Gebühren von Interactive Brokers, Slippage, Leihgebühr und drei Hebel-Profilen (ohne Hebel, Margin-Konto, Viertel-Kelly mit individueller Beschränkung). | US-Aktien |
-| `trend_modell/` | **Trendfolge.** Zwei robuste Grundstrategien:<br>Robust 1: neues 200-Tage-Hoch, 20 Handelstage halten.<br>Robust 2: neues 50-Tage-Hoch bei doppeltem Volumen, 60 Tage halten, nachgezogener Stopp 15 %.<br>Je höchstens 10 Positionen, Auswahl nach Momentum, Handel in der Xetra-Schlussauktion, Gebühren von Scalable Capital. | Xetra-Aktien |
-| `pair_screener/` | **Screener.** Sucht cointegrierte Paare mit dem Engle-Granger-Test, wobei die erwartbaren, zufällig auftretenden Treffer mit der Benjamini-Hochberg-Prozedur erkannt werden sollen. Lädt außerdem die Xetra-Kurse, die das Trendmodell für den Backtest braucht. | Xetra, USA |
+| `hgv_mgm_model/` | **Mean reversion with stock pairs.** Trades the spread of 15 pairs according to its z-score. Account with whole shares, fees of Interactive Brokers, slippage, borrowing fee and three leverage profiles (without leverage, margin account, quarter Kelly with individual limit). | US stocks |
+| `trend_model/` | **Trend following.** Two robust basic strategies:<br>Robust 1: new 200-day high, hold for 20 trading days.<br>Robust 2: new 50-day high with double volume, hold for 60 days, trailing stop 15 %.<br>At most 10 positions each, selection by momentum, trading in the Xetra closing auction, fees of Scalable Capital. | Xetra stocks |
+| `pair_screener/` | **Screener.** Searches for cointegrated pairs with the Engle-Granger test, where the expected hits that occur by chance are to be detected with the Benjamini-Hochberg procedure. Also loads the Xetra prices that the trend model needs for the backtest. | Xetra, USA |
 
-Zusätzliche Prüfungen im Trendmodell:
+Additional tests in the trend model:
 
-| Datei | Inhalt |
+| File | Content |
 |---|---|
-| `trend_modell.py` | Rückrechnung vieler Einstiegs- und Ausstiegsvarianten, optional mit Medienecho (GDELT). Dazu Placebo-Prüfung und Test des Survivorship-Bias mit Pleitefällen. |
-| `trend_cpo.py` | Conditional Parameter Optimization (machine learning zur Optimierung der einzelnen Parameter des Modells vor jedem potenziellen Trade): Walk-forward mit Gradient Boosting, das je Signal den Ausstieg wählt. |
-| `cpo_stresstest.py` | CPO gegen feste Regeln in simulierten Crashs und Volatilitätsschüben um den nur eingeschränkten Zeitraum des Backtests auf mehr Eventualitäten auszubreiten. |
-| `trend_bewertung.py` | Bewertung der Varianten: Gewinnquellen, Plausibilität, probabilistische und deflationierte Sharpe Ratio, White's Reality Check, Abhängigkeit vom Startdatum. |
-| `trend_positionsgroesse.py` | Feste Positionsgröße (1/10) gegen eine Größe je nach Signalqualität (CPO und einfache Regeln). |
-| `trend_ausfuehrung.py` | Ausführungszeitpunkt im Vergleich: Schlussauktion oder Eröffnung des Folgetags. |
-| `trend_cpo_lang.py` | CPO-Test mit langer Kurshistorie ab 2000 und CPO als laufendem Ausstiegssignal. |
-| `trend_protokoll.py` | Protokollmodus (Paper Trading) für Robust 1 und Robust 2. |
+| `trend_model.py` | Backtest of many entry and exit variants, optionally with media echo (GDELT). In addition a placebo test and a test of the survivorship bias with bankruptcy cases. |
+| `trend_cpo.py` | Conditional Parameter Optimization (machine learning for optimizing the individual parameters of the model before each potential trade): walk-forward with gradient boosting, which chooses the exit for each signal. |
+| `cpo_stresstest.py` | CPO against fixed rules in simulated crashes and volatility surges, in order to extend the only limited period of the backtest to more eventualities. |
+| `trend_bewertung.py` | Evaluation of the variants: sources of profit, plausibility, probabilistic and deflated Sharpe ratio, White's Reality Check, dependence on the start date. |
+| `trend_positionsgroesse.py` | Fixed position size (1/10) against a size depending on signal quality (CPO and simple rules). |
+| `trend_ausfuehrung.py` | Execution time in comparison: closing auction or opening of the following day. |
+| `trend_cpo_lang.py` | CPO test with a long price history from 2000 and CPO as an ongoing exit signal. |
+| `trend_protokoll.py` | Protocol mode (paper trading) for Robust 1 and Robust 2. |
 
-## Einrichten
+## Setup
 
 ```bash
 python -m venv .venv
 .venv/bin/pip install -r requirements.txt        # Windows: .venv\Scripts\pip install -r requirements.txt
 ```
 
-Die Kurse kommen kostenlos von Yahoo Finance (`yfinance`). Kursdaten liegen bewusst nicht im Repository.
-Jeder lädt sie beim ersten Lauf selbst.
+The prices come free of charge from Yahoo Finance (`yfinance`). Price data is deliberately not in the repository.
+Everyone loads it themselves on the first run.
 
-## Aufruf
+## Usage
 
 ```bash
-# Mean Reversion (Kurse werden automatisch geladen)
-cd hgv_mgm_modell
-python pair_modell.py                 # Rückrechnung: Training, Test, Korb und einzelne Paare
-python pair_modell.py --protokoll     # Paper Trading: Tagesstand, Orders für den nächsten Handelstag
+# Mean reversion (prices are loaded automatically)
+cd hgv_mgm_model
+python pair_model.py                  # backtest: training, test, basket and individual pairs
+python pair_model.py --protokoll      # paper trading: daily status, orders for the next trading day
 
-# Trendfolge: zuerst die Xetra-Kurse über den Screener laden
-cd pair_screener
-python pair_screener.py               # legt pair_screener/cache/prices_aktien.pkl an
-cd ../trend_modell
-python trend_modell.py --nur-kurse    # Rückrechnung ohne Medienecho
-python trend_protokoll.py --protokoll # Paper Trading Robust 1 und Robust 2
+# Trend following: first load the Xetra prices via the screener
+cd ../pair_screener
+python pair_screener.py               # creates pair_screener/cache/prices_aktien.pkl
+cd ../trend_model
+python trend_model.py --nur-kurse     # backtest without media echo
+python trend_protokoll.py --protokoll # paper trading Robust 1 and Robust 2
 ```
 
-Jedes Skript beschreibt am Anfang der Datei, was es rechnet, welche Schalter es hat und welche Dateien es schreibt.
-Ergebnisse sind CSV-Dateien mit `;` und Dezimalkomma (für Excel).
+Each script describes at the beginning of the file what it calculates, which switches it has and which files it writes.
+Results are CSV files with `;` and decimal comma (for Excel).
 
-## Protokollmodus
+## Protocol mode
 
-Beim ersten Aufruf von `--protokoll` werden der Starttag und alle Einstellungen in `protokoll/start.json`
-festgehalten. Ändert man danach eine Einstellung, bricht das Protokoll mit einer Meldung ab, damit das
-Ergebnis nicht unbemerkt verfälscht wird. `protokoll.csv` wird nur fortgeschrieben, bestehende Zeilen bleiben
-unverändert. In `ausfuehrungen.csv` kann man die real erzielten Kurse eintragen. Das Skript misst daraus die
-tatsächliche Slippage.
+On the first call of `--protokoll`, the start day and all settings are recorded in `protokoll/start.json`.
+If a setting is changed afterwards, the protocol aborts with a message so that the
+result is not falsified unnoticed. `protokoll.csv` is only continued, existing rows remain
+unchanged. In `ausfuehrungen.csv` you can enter the prices actually achieved. From this the script measures the
+actual slippage.
 
-## Bekannte Grenzen
+## Known limitations
 
-- Die Kurse stammen aus Yahoo Finance: rückwirkend um Dividenden bereinigt und gelegentlich nachträglich korrigiert.
-- Das Universum besteht nur aus heute noch gelisteten Titeln (Survivorship Bias). Das Trendmodell kann das mit `--mit-pleiten` abschätzen.
-- Gerechnet wird mit Schlusskursen statt mit Geld- und Briefkursen. Slippage ist pauschal angesetzt.
+- The prices come from Yahoo Finance: adjusted retroactively for dividends and occasionally corrected afterwards.
+- The universe consists only of securities still listed today (survivorship bias). The trend model can estimate this with `--mit-pleiten`.
+- Calculations use closing prices instead of bid and ask prices. Slippage is set as a flat rate.
 
-## Lizenz
+## License
 
-MIT, siehe [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE).

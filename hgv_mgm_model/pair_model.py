@@ -1,98 +1,98 @@
 """
-pair_modell.py - Mean-Reversion-Modell fuer einen Korb von Aktienpaaren, mit Protokollmodus fuer Paper Trading
+pair_model.py - mean-reversion model for a basket of stock pairs, with protocol mode for paper trading
 
-Das Modell handelt den Spread jedes Paares nach seinem z-Score. Alle Paare verwenden DIESELBEN Einstellungen;
-das Kapital ist gleichmaessig auf die Paare verteilt. Ausgewertet wird in getrennten Zeitraeumen:
+The model trades the spread of each pair according to its z-score. All pairs use THE SAME settings;
+the capital is distributed evenly across the pairs. The evaluation takes place in separate periods:
 
-    Training:   die TRAIN_YEARS Jahre vor der Testphase   (hier werden die Einstellungen gewaehlt)
-    Test:       die letzten TEST_YEARS Jahre bis heute    (Kontrolle; fuer die Paarauswahl nicht wirklich neu)
-    Protokoll:  ab dem Starttag des Protokolls            (Paper Trading - die einzigen wirklich neuen Daten)
+    Training:   the TRAIN_YEARS years before the test phase   (the settings are chosen here)
+    Test:       the last TEST_YEARS years up to today         (control; not really new for the pair selection)
+    Protocol:   from the start day of the protocol            (paper trading - the only really new data)
 
-Aufruf
-------
-    python pair_modell.py                  # Rueckrechnung: Training und Test, Korb und einzelne Paare
-    python pair_modell.py --grid           # zusaetzlich: Sharpe des Korbs im TRAINING fuer mehrere Einstiegs-/Ausstiegswerte
-    python pair_modell.py --protokoll      # Protokollmodus: Tagesstand festhalten, Orders fuer morgen, Ergebnis seit Start
-    python pair_modell.py --protokoll-neu  # Protokoll neu beginnen (das alte wird in einen Archivordner verschoben)
-    python pair_modell.py --refresh        # Kurse neu von Yahoo laden (sonst hoechstens alle 12 Stunden)
+Usage
+-----
+    python pair_model.py                  # backtest: training and test, basket and individual pairs
+    python pair_model.py --grid           # additionally: Sharpe of the basket in TRAINING for several entry/exit values
+    python pair_model.py --protokoll      # protocol mode: record the daily status, orders for tomorrow, result since start
+    python pair_model.py --protokoll-neu  # start the protocol anew (the old one is moved to an archive folder)
+    python pair_model.py --refresh        # reload prices from Yahoo (otherwise at most every 12 hours)
 
-Handelsregel (je Paar A / B)
-----------------------------
-    Spread  = log(Kurs A) - HEDGE_RATIO * log(Kurs B)
-    z-Score = (Spread - Mittelwert) / Standardabweichung
-    z < -ENTRY_Z  ->  Spread ist ungewoehnlich niedrig:  A kaufen, B leerverkaufen  ("long Spread")
-    z > +ENTRY_Z  ->  Spread ist ungewoehnlich hoch:     A leerverkaufen, B kaufen  ("short Spread")
-    Ausstieg, sobald eine der Ausstiegsregeln greift (EXIT_Z, MAX_HOLD_DAYS, STOP_Z - siehe unten).
+Trading rule (per pair A / B)
+-----------------------------
+    Spread  = log(price A) - HEDGE_RATIO * log(price B)
+    z-score = (spread - mean) / standard deviation
+    z < -ENTRY_Z  ->  spread is unusually low:   buy A, short-sell B  ("long spread")
+    z > +ENTRY_Z  ->  spread is unusually high:  short-sell A, buy B  ("short spread")
+    Exit as soon as one of the exit rules applies (EXIT_Z, MAX_HOLD_DAYS, STOP_Z - see below).
 
-Das Signal entsteht mit dem Schlusskurs eines Tages. Gehandelt wird je nach EXECUTION zu diesem Schlusskurs,
-zur Eroeffnung des naechsten Handelstags oder zum naechsten Schlusskurs; die Position verdient erst die
-Kursbewegung nach ihrer Ausfuehrung (kein Blick in die Zukunft). Bei "next_open" wird jeder Tag in die
-Bewegung ueber Nacht (Schluss -> Eroeffnung) und im Tagesverlauf (Eroeffnung -> Schluss) zerlegt.
-Renditen eines Paares beziehen sich auf das dem Paar zugeteilte Kapital (Kauf- und Leerverkaufsseite zusammen),
-Renditen des Korbs auf das Gesamtkapital. Die Sharpe Ratio ist annualisiert (Wurzel aus 252), ohne Abzug
-eines risikofreien Zinses, weil sich Kauf und Leerverkauf gegenseitig finanzieren.
+The signal arises with the closing price of a day. Depending on EXECUTION, trading takes place at this closing price,
+at the opening of the next trading day or at the next closing price; the position only earns the
+price move after its execution (no look into the future). With "next_open", each day is split into the
+move overnight (close -> opening) and during the day (opening -> close).
+Returns of a pair refer to the capital allocated to the pair (long and short side together),
+returns of the basket to the total capital. The Sharpe ratio is annualized (square root of 252), without deducting
+a risk-free rate, because the purchase and the short sale finance each other.
 
-Simuliertes Konto und drei Profile
-----------------------------------
-Neben den Renditen der Signale rechnet das Skript Konten in USD (CAPITAL): Gehandelt werden nur ganze Stuecke.
-Ein neues Paar bekommt  Zielhebel x Eigenkapital / Zahl der Paare, je zur Haelfte auf der Kauf- und der
-Leerverkaufsseite, berechnet mit Eigenkapital und Schlusskursen des Signaltags; die Stueckzahlen bleiben bis zum
-Ausstieg unveraendert. Je Order faellt die Gebuehr des Brokers an (Interactive Brokers: je Stueck, mit Mindest- und
-Hoechstbetrag) und zusaetzlich Slippage (COST_BPS). Dazu kommen Leihgebuehr auf Leerverkaeufe und Kreditzinsen auf
-den Teil der Kaufseite, der das Eigenkapital uebersteigt (FINANCING_BASIS = "kredit") bzw. auf die ganze Kaufseite.
+Simulated account and three profiles
+------------------------------------
+In addition to the returns of the signals, the script calculates accounts in USD (CAPITAL): Only whole shares are traded.
+A new pair gets  target leverage x equity / number of pairs, half each on the long and the
+short side, calculated with the equity and closing prices of the signal day; the share quantities remain unchanged until the
+exit. Per order, the broker's fee is charged (Interactive Brokers: per share, with a minimum and
+maximum amount) and additionally slippage (COST_BPS). On top of that come the borrowing fee on short sales and credit interest on
+the part of the long side that exceeds the equity (FINANCING_BASIS = "kredit") or on the whole long side.
 
-Rueckrechnung und Protokoll rechnen drei Profile, jedes als eigenes Konto:
-    Ohne Hebel       Hebel 1.
-    Privat           hoechster Hebel eines normalen Margin-Kontos fuer US-Aktien (RETAIL_LEVERAGE = 2). Margin-Regeln:
-                     Eine neue Position wird abgelehnt, wenn das Eigenkapital danach weniger als MARGIN_INITIAL aller
-                     offenen Positionen deckt; sinkt die Deckung unter MARGIN_MAINTENANCE, schliesst der Broker alles
-                     zwangsweise (Margin Call).
-    Institutionell   Handel mit Kapital eines Handelshauses, fuer das diese Regeln nicht gelten. Zielhebel =
-                     KELLY_FRACTION x Kelly-Hebel aus dem Training, hoechstens INSTITUTIONAL_MAX_LEVERAGE. Das eigene
-                     Kapital traegt alle Verluste. Das Haus schliesst das Konto bei 10 % Gesamtverlust
-                     (INSTITUTIONAL_STOP) oder 5 % Verlust an einem Tag (INSTITUTIONAL_DAILY_LOSS) - spaetestens, wenn
-                     das Kapital aufgebraucht ist. Danach handelt das Modell in diesem Profil nicht weiter.
+Backtest and protocol calculate three profiles, each as its own account:
+    Ohne Hebel       leverage 1.
+    Privat           highest leverage of a normal margin account for US stocks (RETAIL_LEVERAGE = 2). Margin rules:
+                     A new position is rejected if the equity afterwards covers less than MARGIN_INITIAL of all
+                     open positions; if the coverage falls below MARGIN_MAINTENANCE, the broker closes everything
+                     compulsorily (margin call).
+    Institutionell   trading with the capital of a trading firm, for which these rules do not apply. Target leverage =
+                     KELLY_FRACTION x Kelly leverage from the training, at most INSTITUTIONAL_MAX_LEVERAGE. The own
+                     capital bears all losses. The firm closes the account at a total loss of 10 %
+                     (INSTITUTIONAL_STOP) or a loss of 5 % in one day (INSTITUTIONAL_DAILY_LOSS) - at the latest when
+                     the capital is used up. After that, the model no longer trades in this profile.
 
-Kelly-Formel und Stresstest
+Kelly formula and stress test
+-----------------------------
+Optimal leverage f = mean return / variance of the return, calculated ONLY from the training phase
+of the basket (in the protocol: from the TRAIN_YEARS years before the start day, recorded in hebel.json). Because the
+pairs offset each other, the basket fluctuates little, and the formula yields very high leverage; it assumes
+normally distributed returns and known metrics. The stress test of the backtest runs the account through with a
+series of leverage values without any limit and shows from which leverage a total loss would have occurred. The
+cost scale shows the accounts at different levels of slippage.
+
+Protocol mode (--protokoll)
 ---------------------------
-Optimaler Hebel f = mittlere Rendite / Varianz der Rendite, berechnet NUR aus der Trainingsphase
-des Korbs (im Protokoll: aus den TRAIN_YEARS Jahren vor dem Starttag, festgehalten in hebel.json). Weil sich die
-Paare gegenseitig ausgleichen, schwankt der Korb wenig, und die Formel liefert sehr hohe Hebel; sie unterstellt
-normalverteilte Renditen und bekannte Kennzahlen. Der Stresstest der Rueckrechnung rechnet das Konto mit einer
-Reihe von Hebeln ohne jede Grenze durch und zeigt, ab welchem Hebel ein Totalverlust eingetreten waere. Die
-Kostenstaffel zeigt die Konten bei unterschiedlich hoher Slippage.
+On the first call, the start day and the settings are frozen (protokoll/start.json). Each pair starts
+without a position and only enters after its z-score has once been in the normal range after the start day
+(|z| < ENTRY_Z) - so there is no entry in the middle of an ongoing move. Each further call
+    - checks whether the settings still correspond to the frozen state (otherwise abort),
+    - appends the daily status of each pair to protokoll/protokoll.csv (existing rows are never changed;
+      days that are entered only later are marked as "nachgetragen"),
+    - shows the orders for the next trading day,
+    - writes the result since the start day to a separate file (protokoll/ergebnisse.csv).
+protokoll/ausfuehrungen.csv contains every order of the model with the model price. Anyone who executes the orders in a
+demo account enters the actual price there in the column "realer_kurs"; from this the script calculates
+the measured deviation (slippage) in basis points. If a trade was not possible in the demo account (e.g. stock
+not borrowable), enter "nein" there in the column "ausfuehrbar" for the entry orders: The protocol then additionally shows the
+account without these trades. Best called daily, e.g. in the morning.
+Leverage: orders, share quantities and the main result apply to the account without leverage. Additionally, the
+protocol calculates the profiles "Privat" and "Institutionell" as separate accounts - exactly, with larger share quantities,
+fees, credit interest and the rules of the profile, not by multiplying the return.
+A US trading day that is still running is not used (preliminary prices), even if the script runs in the afternoon.
+Note: Yahoo adjusts prices retroactively for dividends. The model price of an order is recorded when it is first
+entered; if a day is entered only after an ex-dividend date, it can therefore be slightly
+below the price traded at the time. This is another reason why the daily call is worthwhile.
 
-Protokollmodus (--protokoll)
-----------------------------
-Beim ersten Aufruf werden Starttag und Einstellungen eingefroren (protokoll/start.json). Jedes Paar beginnt
-ohne Position und steigt erst ein, nachdem sein z-Score nach dem Starttag einmal im Normalbereich
-(|z| < ENTRY_Z) war - es wird also nicht mitten in eine laufende Bewegung eingestiegen. Jeder weitere Aufruf
-    - prueft, ob die Einstellungen noch dem eingefrorenen Stand entsprechen (sonst Abbruch),
-    - haengt den Tagesstand jedes Paares an protokoll/protokoll.csv an (bestehende Zeilen werden nie geaendert;
-      Tage, die erst spaeter eingetragen werden, sind als "nachgetragen" markiert),
-    - zeigt die Orders fuer den naechsten Handelstag,
-    - schreibt das Ergebnis seit dem Starttag in eine eigene Datei (protokoll/ergebnisse.csv).
-In protokoll/ausfuehrungen.csv steht jede Order des Modells mit dem Modellkurs. Wer die Orders in einem
-Demokonto ausfuehrt, traegt dort in der Spalte "realer_kurs" den tatsaechlichen Kurs ein; das Skript berechnet
-daraus die gemessene Abweichung (Slippage) in Basispunkten. War ein Trade im Demokonto nicht moeglich (z. B. Aktie
-nicht leihbar), dort in der Spalte "ausfuehrbar" bei den Einstiegsorders "nein" eintragen: Das Protokoll zeigt das
-Konto dann zusaetzlich ohne diese Trades. Am besten taeglich aufrufen, z. B. morgens.
-Hebel: Orders, Stueckzahlen und das Hauptergebnis gelten fuer das Konto ohne Hebel. Zusaetzlich rechnet das
-Protokoll die Profile "Privat" und "Institutionell" als eigene Konten - exakt, mit groesseren Stueckzahlen,
-Gebuehren, Kreditzinsen und den Regeln des Profils, nicht durch Multiplikation der Rendite.
-Ein noch laufender US-Handelstag wird nicht verwendet (vorlaeufige Kurse), auch wenn das Skript nachmittags laeuft.
-Hinweis: Yahoo bereinigt Kurse rueckwirkend um Dividenden. Der Modellkurs einer Order wird beim ersten
-Eintragen festgehalten; wird ein Tag erst nach einem Dividendentermin nachgetragen, kann er deshalb leicht
-unter dem damals gehandelten Kurs liegen. Auch aus diesem Grund lohnt der taegliche Aufruf.
-
-Dateien
--------
-    output/     kennzahlen.csv (Konto je Phase), paare.csv (je Paar), konto_trades.csv (Trades im Konto, in USD),
-                trades.csv (Signale, in %), tageswerte.csv, kostenstaffel.csv, hebel_stresstest.csv,
-                margin_calls.csv (falls vorgekommen), modell.png
+Files
+-----
+    output/     kennzahlen.csv (account per phase), paare.csv (per pair), konto_trades.csv (trades in the account, in USD),
+                trades.csv (signals, in %), tageswerte.csv, kostenstaffel.csv, hebel_stresstest.csv,
+                margin_calls.csv (if any occurred), modell.png
     protokoll/  start.json, hebel.json, protokoll.csv, ausfuehrungen.csv, ergebnisse.csv, ergebnisse_paare.csv,
                 ergebnisse_hebel.csv, trades.csv, konto_trades.csv
-    (CSV mit ";" und Dezimalkomma fuer Excel)
+    (CSV with ";" and decimal comma for Excel)
 """
 from __future__ import annotations
 
@@ -106,10 +106,10 @@ import numpy as np
 import pandas as pd
 
 # ======================================================================================================
-# EINSTELLUNGEN
+# SETTINGS
 # ======================================================================================================
-# Die 15 besten Paare aus pair_screener/output_us_aktien/mr_paare.csv (Rangliste vom 04.10.2026). Zu späteren Zeitpunkten muss entsprechend ein eigener Test auf potenziell cointegrierte Paare mit dem pair_screener durchgeführt werden. 
-# Die Liste ist bewusst fest eingetragen: Sie soll sich waehrend des Paper Tradings nicht aendern.
+# The 15 best pairs from pair_screener/output_us_aktien/mr_paare.csv (ranking of 04.10.2026). At later points in time, a separate test for potentially cointegrated pairs must accordingly be carried out with the pair_screener. 
+# The list is entered as fixed on purpose: It should not change during the paper trading.
 PAIRS = [
     ("HGV", "MGM"),     # Resorts & Casinos
     ("ALGM", "STM"),    # Semiconductors
@@ -128,88 +128,88 @@ PAIRS = [
     ("EWBC", "PNFP"),   # Banks - Regional
 ]
 
-# ---- Zeitraeume
-TEST_YEARS = 1.0            # Testphase: so viele Jahre bis zum letzten Kursdatum
-TRAIN_YEARS = 3.0           # Trainingsphase: so viele Jahre direkt davor
+# ---- Periods
+TEST_YEARS = 1.0            # test phase: this many years up to the last price date
+TRAIN_YEARS = 3.0           # training phase: this many years directly before
 
-# ---- z-Score
-Z_MODE = "rolling"          # "rolling"  = Mittelwert und Std aus den letzten LOOKBACK Handelstagen (gleitend)
-                            # "training" = Mittelwert und Std fest aus der Trainingsphase (wie in Chans Beispielen)
-LOOKBACK = 60               # Fensterlaenge in Handelstagen (nur fuer Z_MODE = "rolling")
+# ---- z-score
+Z_MODE = "rolling"          # "rolling"  = mean and std from the last LOOKBACK trading days (moving)
+                            # "training" = mean and std fixed from the training phase (as in Chan's examples)
+LOOKBACK = 60               # window length in trading days (only for Z_MODE = "rolling")
 
-# ---- Einstieg
-ENTRY_Z = 1.25              # Einstieg, wenn der z-Score ueber +ENTRY_Z oder unter -ENTRY_Z liegt
+# ---- Entry
+ENTRY_Z = 1.25              # entry when the z-score is above +ENTRY_Z or below -ENTRY_Z
 
-# ---- Ausstieg (jede Regel einzeln einstellbar; es gilt, was zuerst eintritt)
-EXIT_Z = 0.25               # Ausstieg, wenn der z-Score bis auf EXIT_Z an den Mittelwert zurueckgekehrt ist:
-                            #    0.0 = am Mittelwert,  0.5 = schon frueher (bei +/-0.5),
-                            #   -0.5 = erst nach Ueberschiessen auf die andere Seite
-MAX_HOLD_DAYS = 40          # Zeit-Stopp: spaetestens nach so vielen Handelstagen schliessen (None = aus)
-STOP_Z = None               # Verlust-Stopp: schliessen, wenn der z-Score weiter weglaeuft als STOP_Z
-                            #   (z. B. 4.0; None = aus). Danach kein neuer Einstieg, bis |z| wieder < ENTRY_Z.
+# ---- Exit (each rule can be set individually; whichever occurs first applies)
+EXIT_Z = 0.25               # exit when the z-score has returned to within EXIT_Z of the mean:
+                            #    0.0 = at the mean,  0.5 = already earlier (at +/-0.5),
+                            #   -0.5 = only after overshooting to the other side
+MAX_HOLD_DAYS = 40          # time stop: close after this many trading days at the latest (None = off)
+STOP_Z = None               # loss stop: close if the z-score runs away further than STOP_Z
+                            #   (e.g. 4.0; None = off). After that no new entry until |z| < ENTRY_Z again.
 
-# ---- Hedge Ratio
-HEDGE_RATIO = 1.0           # 1.0 = gleicher Betrag in beiden Aktien (dollar-neutral)
-                            # "training" = je Paar per Regression log(A) auf log(B) in der Trainingsphase geschaetzt
+# ---- Hedge ratio
+HEDGE_RATIO = 1.0           # 1.0 = same amount in both stocks (dollar-neutral)
+                            # "training" = estimated per pair by regressing log(A) on log(B) in the training phase
 
-# ---- Simuliertes Konto
-CAPITAL = 50_000            # Eigenkapital in USD zu Beginn jeder Phase (Training, Test, Protokoll).
-                            #   Gehandelt werden nur ganze Stuecke; reicht der Betrag je Aktie nicht fuer ein
-                            #   Stueck, faellt der Trade aus.
+# ---- Simulated account
+CAPITAL = 50_000            # equity in USD at the beginning of each phase (training, test, protocol).
+                            #   Only whole shares are traded; if the amount per stock is not enough for one
+                            #   share, the trade is dropped.
 
-# ---- Gebuehren: Interactive Brokers, IBKR Pro, US-Aktien, Tarif "Fixed" (Stand Oktober 2026)
-COMMISSION_PER_SHARE = 0.005    # USD je Stueck
-COMMISSION_MIN = 1.00           # Mindestgebuehr je Order in USD
-COMMISSION_MAX_PCT = 0.01       # hoechstens 1 % des Orderwerts
-                            #   Tarif "Tiered" (bis 300.000 Stueck/Monat): 0.0035 je Stueck, mindestens 0.35 je Order,
-                            #   zuzueglich Boersen- und Clearinggebuehren, die hier nicht modelliert sind.
+# ---- Fees: Interactive Brokers, IBKR Pro, US stocks, "Fixed" plan (as of October 2026)
+COMMISSION_PER_SHARE = 0.005    # USD per share
+COMMISSION_MIN = 1.00           # minimum fee per order in USD
+COMMISSION_MAX_PCT = 0.01       # at most 1 % of the order value
+                            #   "Tiered" plan (up to 300,000 shares/month): 0.0035 per share, at least 0.35 per order,
+                            #   plus exchange and clearing fees, which are not modeled here.
 
-# ---- Drei Konto-Profile (Rueckrechnung und Protokoll rechnen jedes als eigenes Konto mit CAPITAL)
-#   1. Ohne Hebel:      Hebel 1, keine Margin-Fragen.
-#   2. Privat:          der hoechste Hebel eines normalen Margin-Kontos fuer US-Aktien (Reg T).
-#   3. Institutionell:  Handel mit Kapital eines Handelshauses (Proprietary Trading Firm), fuer das Reg T nicht gilt.
-#                       Zielhebel = KELLY_FRACTION x Kelly-Hebel aus dem Training, hoechstens INSTITUTIONAL_MAX_LEVERAGE.
-RETAIL_LEVERAGE = 2.0       # Zielhebel im Profil "Privat"
-MARGIN_INITIAL = 0.50       # Privat: Eine neue Position wird nur eroeffnet, wenn das Eigenkapital danach mindestens
-                            #   diesen Anteil aller offenen Positionen (Kauf- plus Leerverkaufsseite) deckt.
-                            #   0.50 = Reg T -> hoechstens Hebel 2. None = nicht pruefen.
-MARGIN_MAINTENANCE = 0.30   # Privat: Faellt das Eigenkapital unter diesen Anteil der offenen Positionen, schliesst der
-                            #   Broker alles zwangsweise (Margin Call). Ueblich: 25 % fuer Kaeufe, 30 % fuer Leerverkaeufe.
-KELLY_FRACTION = 0.25       # Institutionell: Anteil des Kelly-Hebels (1.0 = voller Kelly, 0.5 = halber, 0.25 = Viertel)
-INSTITUTIONAL_MAX_LEVERAGE = 6   # Institutionell: hoechster Hebel, den das Handelshaus stellt. Neue Positionen werden
-                            #   nur bis zu diesem Vielfachen des eigenen Kapitals eroeffnet. Das eigene Kapital traegt
-                            #   alle Verluste; ist es aufgebraucht, schliesst das Haus das Konto (TOTALVERLUST).
-INSTITUTIONAL_STOP = 0.90   # Institutionell, Gesamtverlustgrenze: Das Haus schliesst das Konto, wenn das Kapital unter
-                            #   diesen Anteil des Startkapitals faellt. 0.90 = hoechstens 10 % Verlust - der bei
-                            #   Handelshaeusern am haeufigsten genannte Wert (ueblich sind 6 bis 12 %). None = aus.
-INSTITUTIONAL_DAILY_LOSS = 0.05     # Institutionell, Tagesverlustgrenze: Das Konto wird geschlossen, wenn der Verlust
-                            #   eines Tages diesen Anteil des Kontostands vom Vorabend erreicht. 0.05 = 5 %
-                            #   (ueblich: 4 bis 6 %). None = aus. Die Gesamtverlustgrenze gilt fest ab dem
-                            #   Startkapital und wird nicht nachgezogen.
-                            #   Massgeblich ist der Vertrag des jeweiligen Handelshauses - dort nachsehen.
-STRESS_LEVERAGE = [1, 2, 4, 8, 16, 32, 64, 128]   # Hebel fuer den Stresstest "waere ein Totalverlust eingetreten?"
-COST_LADDER_BPS = [0, 5, 10, 20, 30]                # Slippage-Stufen fuer die Kostenstaffel
+# ---- Three account profiles (backtest and protocol calculate each as its own account with CAPITAL)
+#   1. No leverage:     leverage 1, no margin issues.
+#   2. Private:         the highest leverage of a normal margin account for US stocks (Reg T).
+#   3. Institutional:   trading with the capital of a trading firm (proprietary trading firm), for which Reg T does not apply.
+#                       Target leverage = KELLY_FRACTION x Kelly leverage from the training, at most INSTITUTIONAL_MAX_LEVERAGE.
+RETAIL_LEVERAGE = 2.0       # target leverage in the profile "Privat"
+MARGIN_INITIAL = 0.50       # Privat: A new position is only opened if the equity afterwards covers at least
+                            #   this share of all open positions (long plus short side).
+                            #   0.50 = Reg T -> at most leverage 2. None = do not check.
+MARGIN_MAINTENANCE = 0.30   # Privat: If the equity falls below this share of the open positions, the
+                            #   broker closes everything compulsorily (margin call). Usual: 25 % for purchases, 30 % for short sales.
+KELLY_FRACTION = 0.25       # Institutionell: share of the Kelly leverage (1.0 = full Kelly, 0.5 = half, 0.25 = quarter)
+INSTITUTIONAL_MAX_LEVERAGE = 6   # Institutionell: highest leverage that the trading firm provides. New positions are
+                            #   only opened up to this multiple of the own capital. The own capital bears
+                            #   all losses; once it is used up, the firm closes the account (TOTALVERLUST).
+INSTITUTIONAL_STOP = 0.90   # Institutionell, total loss limit: The firm closes the account if the capital falls below
+                            #   this share of the starting capital. 0.90 = at most 10 % loss - the value most frequently
+                            #   cited by trading firms (6 to 12 % is usual). None = off.
+INSTITUTIONAL_DAILY_LOSS = 0.05     # Institutionell, daily loss limit: The account is closed if the loss
+                            #   of one day reaches this share of the account balance of the previous evening. 0.05 = 5 %
+                            #   (usual: 4 to 6 %). None = off. The total loss limit applies fixed from the
+                            #   starting capital and is not trailed.
+                            #   The contract of the respective trading firm is decisive - check there.
+STRESS_LEVERAGE = [1, 2, 4, 8, 16, 32, 64, 128]   # leverage for the stress test "would a total loss have occurred?"
+COST_LADDER_BPS = [0, 5, 10, 20, 30]                # slippage levels for the cost scale
 
-# ---- Kosten und Ausfuehrung
-COST_BPS = 5                # Slippage je Kauf oder Verkauf in Basispunkten des Orderwerts (Abstand zwischen
-                            #   Modellkurs und tatsaechlichem Kurs). Die Gebuehren des Brokers kommen im Konto dazu.
-BORROW_FEE = 0.01           # Leihgebuehr p. a. auf die leerverkaufte Seite
-FINANCING_RATE = 0.0538     # Zins p. a. fuer den Hebel (Wertpapierkredit). 5,38 % = Interactive Brokers (IBKR Pro),
-                            #   USD-Kredit bis 100.000, Stand Oktober 2026: Referenzzins 3,88 % + 1,5 % Aufschlag.
-                            #   Viele deutsche Broker und CFD-Anbieter liegen hoeher - Satz des eigenen Brokers eintragen.
-FINANCING_BASIS = "kredit"  # worauf der Zins anfaellt, solange Positionen offen sind:
-                            #   "kredit" = nur auf den Teil der Kaufseite, der das Eigenkapital uebersteigt
-                            #              (Wertpapierkredit / Margin-Konto)
-                            #   "voll"   = auf die gesamte Kaufseite (wie bei CFDs ueblich)
-SHORT_PROCEEDS_RATE = 0.0   # Zins p. a., den der Broker auf den Erloes der Leerverkaeufe gutschreibt
-                            #   (Privatkunden erhalten meist nichts -> 0)
-EXECUTION = "next_open"     # wann nach einem Signal (Schlusskurs des Tages) gehandelt wird:
-                            #   "close"      = zum Schlusskurs desselben Tages (leicht geschoent: der Schlusskurs
-                            #                  steht erst fest, wenn der Handel vorbei ist)
-                            #   "next_open"  = zum Eroeffnungskurs des naechsten Handelstags (Order ueber Nacht)
-                            #   "next_close" = zum Schlusskurs des naechsten Handelstags (strengste Variante)
+# ---- Costs and execution
+COST_BPS = 5                # slippage per purchase or sale in basis points of the order value (distance between
+                            #   model price and actual price). The broker's fees are added in the account.
+BORROW_FEE = 0.01           # borrowing fee p. a. on the short side
+FINANCING_RATE = 0.0538     # interest p. a. for the leverage (securities loan). 5.38 % = Interactive Brokers (IBKR Pro),
+                            #   USD loan up to 100,000, as of October 2026: reference rate 3.88 % + 1.5 % markup.
+                            #   Many German brokers and CFD providers are higher - enter the rate of your own broker.
+FINANCING_BASIS = "kredit"  # what the interest is charged on while positions are open:
+                            #   "kredit" = only on the part of the long side that exceeds the equity
+                            #              (securities loan / margin account)
+                            #   "voll"   = on the whole long side (as usual with CFDs)
+SHORT_PROCEEDS_RATE = 0.0   # interest p. a. that the broker credits on the proceeds of the short sales
+                            #   (private clients usually get nothing -> 0)
+EXECUTION = "next_open"     # when trading takes place after a signal (closing price of the day):
+                            #   "close"      = at the closing price of the same day (slightly flattering: the closing price
+                            #                  is only fixed when trading is over)
+                            #   "next_open"  = at the opening price of the next trading day (order overnight)
+                            #   "next_close" = at the closing price of the next trading day (strictest variant)
 
-# ---- Raster fuer --grid (wird NUR in der Trainingsphase ausgewertet, fuer den ganzen Korb)
+# ---- Grid for --grid (evaluated ONLY in the training phase, for the whole basket)
 GRID_ENTRY_Z = [1.0, 1.25, 1.5, 2.0, 2.5]
 GRID_EXIT_Z = [-0.5, 0.0, 0.25, 0.5, 1.0]
 # ======================================================================================================
@@ -218,8 +218,8 @@ BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "daten"
 OUT_DIR = BASE_DIR / "output"
 PROT_DIR = BASE_DIR / "protokoll"
-HISTORY_YEARS = 12          # so viel Historie wird von Yahoo geladen (reicht auch fuer laengere Phasen)
-MIN_DAYS_FOR_SHARPE = 60    # im Protokoll wird eine Sharpe Ratio erst ab so vielen Handelstagen gezeigt
+HISTORY_YEARS = 12          # this much history is loaded from Yahoo (also enough for longer phases)
+MIN_DAYS_FOR_SHARPE = 60    # in the protocol, a Sharpe ratio is only shown from this many trading days on
 
 
 def log(msg: str) -> None:
@@ -235,28 +235,28 @@ def tickers() -> list[str]:
 
 
 def save_csv(df: pd.DataFrame, name: str, index: bool = False, folder: Path | None = None) -> bool:
-    """CSV fuer Excel schreiben. Gibt False zurueck, wenn die Datei gesperrt war (dann unter anderem Namen)."""
+    """Write a CSV for Excel. Returns False if the file was locked (then under a different name)."""
     folder = folder or OUT_DIR
     folder.mkdir(exist_ok=True)
     path = folder / name
     try:
         df.to_csv(path, sep=";", decimal=",", index=index, encoding="utf-8-sig")
         return True
-    except PermissionError:                                 # Datei ist z. B. in Excel geoeffnet
+    except PermissionError:                                 # the file is open in Excel, for example
         alt = folder / f"{path.stem}_{time.strftime('%H%M%S')}{path.suffix}"
         df.to_csv(alt, sep=";", decimal=",", index=index, encoding="utf-8-sig")
         log(f"{name} ist gesperrt (in Excel offen?) - gespeichert als {alt.name}")
         return False
 
 
-# ------------------------------------------------------------------------------------------ Kurse
+# ------------------------------------------------------------------------------------------ Prices
 def drop_unfinished_day(px: pd.DataFrame) -> pd.DataFrame:
-    """Laufenden US-Handelstag entfernen: Waehrend des Handels liefert Yahoo fuer heute einen vorlaeufigen
-    'Schlusskurs'. Ein Signal daraus waere falsch und wuerde im Protokoll festgeschrieben."""
+    """Remove the current US trading day: During trading, Yahoo provides a preliminary 'closing price'
+    for today. A signal from it would be wrong and would be written into the protocol permanently."""
     try:
         now = pd.Timestamp.now(tz="America/New_York")
         today, done = now.normalize().tz_localize(None), now.hour * 60 + now.minute >= 16 * 60 + 20
-    except Exception:                                       # keine Zeitzonendaten: Naeherung ueber Weltzeit
+    except Exception:                                       # no time zone data: approximation via UTC
         now = pd.Timestamp.now(tz="UTC")
         today, done = now.normalize().tz_localize(None), now.hour * 60 + now.minute >= 21 * 60 + 20
     if len(px) and px.index[-1] >= today and not done:
@@ -267,9 +267,9 @@ def drop_unfinished_day(px: pd.DataFrame) -> pd.DataFrame:
 
 
 def load_prices(refresh: bool) -> pd.DataFrame:
-    """Tageskurse aller Aktien, um Dividenden und Splits bereinigt.
+    """Daily prices of all stocks, adjusted for dividends and splits.
 
-    Spalten: Ticker = Schlusskurs, "<Ticker>_open" = Eroeffnungskurs (fuer EXECUTION = "next_open").
+    Columns: ticker = closing price, "<Ticker>_open" = opening price (for EXECUTION = "next_open").
     """
     DATA_DIR.mkdir(exist_ok=True)
     cache = DATA_DIR / "kurse.csv"
@@ -280,7 +280,7 @@ def load_prices(refresh: bool) -> pd.DataFrame:
     def read_cache() -> pd.DataFrame:
         return pd.read_csv(cache, index_col=0, parse_dates=True)
 
-    def usable(px: pd.DataFrame) -> bool:                   # alle Aktien vorhanden (und Eroeffnungskurse, falls noetig)?
+    def usable(px: pd.DataFrame) -> bool:                   # all stocks available (and opening prices, if needed)?
         return set(tk) <= set(px.columns) and (not need_open or set(open_cols) <= set(px.columns))
 
     fresh = cache.exists() and time.time() - cache.stat().st_mtime < 12 * 3600
@@ -318,34 +318,34 @@ def load_prices(refresh: bool) -> pd.DataFrame:
                          f"Ist yfinance installiert (pip install yfinance) und besteht eine Internetverbindung?")
 
 
-# ------------------------------------------------------------------------------------------ Modell
+# ------------------------------------------------------------------------------------------ Model
 def build_signals(px: pd.DataFrame, a: str, b: str, train: np.ndarray) -> tuple[pd.DataFrame, float]:
-    """Spread und z-Score eines Paares fuer die ganze Historie. train = Maske der Trainingstage (auf px.index).
+    """Spread and z-score of a pair for the whole history. train = mask of the training days (on px.index).
 
-    Das Ergebnis hat denselben Index wie px; an Tagen ohne Kurs einer der beiden Aktien steht NaN.
+    The result has the same index as px; on days without a price for one of the two stocks there is NaN.
     """
     cols = [a, b] + ([f"{a}_open", f"{b}_open"] if f"{a}_open" in px.columns and f"{b}_open" in px.columns else [])
     sub = px[cols].dropna()
     tr = pd.Series(train, index=px.index).reindex(sub.index).to_numpy()
     la, lb = np.log(sub[a]), np.log(sub[b])
-    if HEDGE_RATIO == "training":                           # Regression nur mit Trainingsdaten
+    if HEDGE_RATIO == "training":                           # regression only with training data
         if tr.sum() < 60:
             raise SystemExit(f'{pair_name(a, b)}: zu wenig Trainingsdaten fuer HEDGE_RATIO = "training"')
         beta = float(np.polyfit(lb[tr], la[tr], 1)[0])
     else:
         beta = float(HEDGE_RATIO)
     spread = la - beta * lb
-    if Z_MODE == "training":                                # feste Werte aus der Trainingsphase
+    if Z_MODE == "training":                                # fixed values from the training phase
         z = (spread - spread[tr].mean()) / spread[tr].std()
-    elif Z_MODE == "rolling":                               # gleitend, nutzt nur vergangene Tage
+    elif Z_MODE == "rolling":                               # moving, uses only past days
         roll = spread.rolling(LOOKBACK, min_periods=LOOKBACK)
         z = (spread - roll.mean()) / roll.std()
     else:
         raise SystemExit('Z_MODE muss "rolling" oder "training" sein')
-    w_a, w_b = 1 / (1 + abs(beta)), beta / (1 + abs(beta))  # Kapitalanteile der beiden Seiten
+    w_a, w_b = 1 / (1 + abs(beta)), beta / (1 + abs(beta))  # capital shares of the two sides
     out = pd.DataFrame({"kurs_a": sub[a], "kurs_b": sub[b], "spread": spread, "z": z,
                         "spread_rendite": w_a * sub[a].pct_change() - w_b * sub[b].pct_change()})
-    if len(cols) == 4:                                      # Zerlegung fuer die Ausfuehrung zur Eroeffnung
+    if len(cols) == 4:                                      # decomposition for the execution at the opening
         oa, ob = sub[f"{a}_open"], sub[f"{b}_open"]
         out["open_a"], out["open_b"] = oa, ob
         out["rendite_nacht"] = w_a * (oa / sub[a].shift(1) - 1) - w_b * (ob / sub[b].shift(1) - 1)
@@ -355,30 +355,30 @@ def build_signals(px: pd.DataFrame, a: str, b: str, train: np.ndarray) -> tuple[
 
 def simulate(sig: pd.DataFrame, beta: float, entry_z: float, exit_z: float,
              start_blocked: bool = False, close_at_end: bool = True) -> pd.DataFrame:
-    """Handelt ein Paar von Anfang (ohne Position) bis Ende eines Zeitraums. Gibt Tageswerte zurueck.
+    """Trades a pair from the beginning (without a position) to the end of a period. Returns daily values.
 
-    start_blocked: erst einsteigen, nachdem |z| einmal unter entry_z lag (Protokoll: kein Einstieg in eine
-                   laufende Bewegung). close_at_end: fuer eine am Ende offene Position Schlusskosten ansetzen.
+    start_blocked: only enter after |z| has once been below entry_z (protocol: no entry into an
+                   ongoing move). close_at_end: apply closing costs for a position that is open at the end.
     """
     z = sig["z"].to_numpy()
     n = len(z)
-    signal = np.zeros(n)                                    # gewuenschte Position nach Schlusskurs des Tages
-    reason = np.array([""] * n, dtype=object)               # Grund eines Ausstiegs an diesem Tag
+    signal = np.zeros(n)                                    # desired position after the closing price of the day
+    reason = np.array([""] * n, dtype=object)               # reason for an exit on this day
     cur, held, blocked = 0, 0, bool(start_blocked)
     for t in range(n):
         zt = z[t]
-        if zt != zt:                                        # kein z-Score (zu wenig Historie): keine Position
+        if zt != zt:                                        # no z-score (too little history): no position
             if cur != 0:
                 reason[t] = "keine Daten"
             cur, held = 0, 0
         elif cur == 0:
-            if blocked and abs(zt) < entry_z:               # nach Stopp / Protokollstart erst wieder im Normalbereich
+            if blocked and abs(zt) < entry_z:               # after a stop / protocol start only again in the normal range
                 blocked = False
             if not blocked:
                 if zt > entry_z:
-                    cur, held = -1, 0                       # Spread zu hoch -> short Spread
+                    cur, held = -1, 0                       # spread too high -> short spread
                 elif zt < -entry_z:
-                    cur, held = 1, 0                        # Spread zu niedrig -> long Spread
+                    cur, held = 1, 0                        # spread too low -> long spread
         else:
             held += 1
             if STOP_Z is not None and ((cur == 1 and zt <= -STOP_Z) or (cur == -1 and zt >= STOP_Z)):
@@ -388,27 +388,27 @@ def simulate(sig: pd.DataFrame, beta: float, entry_z: float, exit_z: float,
             elif MAX_HOLD_DAYS is not None and held >= MAX_HOLD_DAYS:
                 reason[t], cur, held = "Zeit", 0, 0
         signal[t] = cur
-    wanted = signal.copy()                                  # Signal nach Schlusskurs, vor der Ausfuehrung
-    if EXECUTION in ("next_open", "next_close"):            # Ausfuehrung erst am naechsten Handelstag
+    wanted = signal.copy()                                  # signal after the closing price, before the execution
+    if EXECUTION in ("next_open", "next_close"):            # execution only on the next trading day
         signal = np.concatenate([[0.0], signal[:-1]])
         reason = np.concatenate([np.array([""], dtype=object), reason[:-1]])
-    # signal = Position am Tagesende; prev = Position, die ueber Nacht gehalten wurde
+    # signal = position at the end of the day; prev = position that was held overnight
     prev = np.concatenate([[0.0], signal[:-1]])
     full_day = np.nan_to_num(sig["spread_rendite"].to_numpy())
     if EXECUTION == "next_open":
-        # Handel zur Eroeffnung: ueber Nacht verdient noch die alte Position, im Tagesverlauf schon die neue
+        # trading at the opening: overnight the old position still earns, during the day already the new one
         night, day = np.nan_to_num(sig["rendite_nacht"].to_numpy()), np.nan_to_num(sig["rendite_tag"].to_numpy())
         gross = np.where(prev == signal, prev * full_day, prev * night + signal * day)
     else:
-        gross = prev * full_day                             # Handel zum Schlusskurs: Rendite ab dem Folgetag
+        gross = prev * full_day                             # trading at the closing price: return from the following day
     cost = np.abs(signal - prev) * COST_BPS / 1e4
-    short_share = np.where(prev > 0, abs(beta), 1.0) / (1 + abs(beta))      # long Spread: B ist leerverkauft
+    short_share = np.where(prev > 0, abs(beta), 1.0) / (1 + abs(beta))      # long spread: B is sold short
     borrow = np.abs(prev) * short_share * BORROW_FEE / 252
-    if n and signal[-1] != 0:                               # am Ende offene Position
+    if n and signal[-1] != 0:                               # position open at the end
         reason[-1] = "offen"
         if close_at_end:
             cost[-1] += abs(signal[-1]) * COST_BPS / 1e4
-    long_share = np.abs(prev) * np.where(prev > 0, 1.0, abs(beta)) / (1 + abs(beta))    # Kaufseite: A bzw. B
+    long_share = np.abs(prev) * np.where(prev > 0, 1.0, abs(beta)) / (1 + abs(beta))    # long side: A or B
     return pd.DataFrame({"signal": wanted, "position": signal, "brutto": gross, "kosten": cost + borrow,
                          "netto": gross - cost - borrow, "ausstieg_grund": reason,
                          "kaufseite": long_share, "leerseite": np.abs(prev) * short_share}, index=sig.index)
@@ -419,21 +419,21 @@ def direction(pos: float, a: str, b: str) -> str:
 
 
 def list_trades(res: pd.DataFrame, sig: pd.DataFrame, phase: str, a: str, b: str) -> pd.DataFrame:
-    """Einzelne Trades eines Paares in einem Zeitraum: Bloecke mit Position != 0."""
+    """Individual trades of a pair in a period: blocks with position != 0."""
     pos, net = res["position"].to_numpy(), res["netto"].to_numpy()
     idx, z = res.index, sig["z"].to_numpy()
     prev = np.concatenate([[0.0], pos[:-1]])
-    lag = 0 if EXECUTION == "close" else 1                  # Tage zwischen Signal und Ausfuehrung
+    lag = 0 if EXECUTION == "close" else 1                  # days between signal and execution
     rows = []
     for i in np.where((pos != 0) & (prev != pos))[0]:
         e = i
         while e + 1 < len(pos) and pos[e + 1] == pos[i]:
             e += 1
-        is_open = e == len(pos) - 1                         # laeuft am Ende des Zeitraums noch
-        x = min(e + 1, len(pos) - 1)                        # Tag, an dem geschlossen wird
+        is_open = e == len(pos) - 1                         # still running at the end of the period
+        x = min(e + 1, len(pos) - 1)                        # day on which the position is closed
         rows.append({"phase": phase, "paar": pair_name(a, b), "einstieg": idx[i].date(),
                      "ausstieg": None if is_open else idx[x].date(), "richtung": direction(pos[i], a, b),
-                     "z_einstieg": z[max(i - lag, 0)], "z_ausstieg": z[max(x - lag, 0)],   # z-Score des Signals
+                     "z_einstieg": z[max(i - lag, 0)], "z_ausstieg": z[max(x - lag, 0)],   # z-score of the signal
                      "handelstage": e - i + 1,
                      "grund": "offen" if is_open else (res["ausstieg_grund"].iloc[x] or "z-Score"),
                      "ergebnis": float(net[i:x + 1].sum())})
@@ -442,16 +442,16 @@ def list_trades(res: pd.DataFrame, sig: pd.DataFrame, phase: str, a: str, b: str
 
 
 def combine(results: list[pd.DataFrame]) -> pd.DataFrame:
-    """Korb: gleiches Kapital je Paar. Renditen und Kapitalanteile sind der Durchschnitt ueber alle Paare."""
+    """Basket: same capital per pair. Returns and capital shares are the average over all pairs."""
     out = pd.DataFrame(index=results[0].index)
     for col in ("brutto", "kosten", "netto", "kaufseite", "leerseite"):
         out[col] = np.mean([r[col].to_numpy() for r in results], axis=0)
-    out["position"] = np.sum([np.abs(r["position"].to_numpy()) for r in results], axis=0)    # offene Paare
+    out["position"] = np.sum([np.abs(r["position"].to_numpy()) for r in results], axis=0)    # open pairs
     return out
 
 
 def stats(res: pd.DataFrame, trades: pd.DataFrame) -> dict:
-    """Kennzahlen eines Zeitraums aus den Tagesrenditen nach Kosten."""
+    """Metrics of a period from the daily returns after costs."""
     r = res["netto"].to_numpy()
     years = max(len(r) / 252, 1e-9)
     sd = r.std(ddof=1) if len(r) > 1 else 0.0
@@ -462,11 +462,11 @@ def stats(res: pd.DataFrame, trades: pd.DataFrame) -> dict:
     closed = trades[trades["grund"] != "offen"] if len(trades) else trades
     return {"von": res.index[0].date(), "bis": res.index[-1].date(), "handelstage": len(r),
             "sharpe": sharpe,
-            # Faustformel fuer die Unsicherheit einer geschaetzten Sharpe Ratio (Standardfehler)
+            # rule of thumb for the uncertainty of an estimated Sharpe ratio (standard error)
             "sharpe_unsicherheit": float(np.sqrt((1 + 0.5 * sharpe ** 2) / years)) if sharpe == sharpe else float("nan"),
             "sharpe_vor_kosten": float(np.sqrt(252) * g.mean() / gsd) if gsd > 0 else float("nan"),
             "rendite_pa": float(r.mean() * 252), "gesamtrendite": float(eq[-1] - 1),
-            "wachstum_pa": float(eq[-1] ** (1 / years) - 1) if eq[-1] > 0 else -1.0,   # mit Zinseszins
+            "wachstum_pa": float(eq[-1] ** (1 / years) - 1) if eq[-1] > 0 else -1.0,   # with compound interest
             "schlechtester_tag": float(r.min()),
             "max_rueckgang": float((eq / np.maximum.accumulate(eq) - 1).min()),
             "trades": len(trades), "gewinner": int((trades["ergebnis"] > 0).sum()),
@@ -477,11 +477,11 @@ def stats(res: pd.DataFrame, trades: pd.DataFrame) -> dict:
 
 
 def kelly_leverage(res: pd.DataFrame) -> dict:
-    """Kelly-Hebel eines Zeitraums: f = m / s^2 mit m = mittlere Tagesrendite, s^2 = Varianz der Tagesrendite.
+    """Kelly leverage of a period: f = m / s^2 with m = mean daily return, s^2 = variance of the daily return.
 
-    m ist die Rendite je Hebel-Einheit NACH den Finanzierungskosten, die eine weitere Hebel-Einheit kostet
-    (Zins auf die zusaetzliche Kaufseite). Das entspricht bei Chan dem Abzug des Finanzierungszinses.
-    Die maximale erwartete Wachstumsrate bei vollem Kelly-Hebel ist dann etwa m^2 / (2 s^2) (stetig).
+    m is the return per unit of leverage AFTER the financing costs that a further unit of leverage costs
+    (interest on the additional long side). In Chan, this corresponds to deducting the financing rate.
+    The maximum expected growth rate at full Kelly leverage is then approximately m^2 / (2 s^2) (continuous).
     """
     marginal = (res["kaufseite"].to_numpy() * FINANCING_RATE
                 - res["leerseite"].to_numpy() * SHORT_PROCEEDS_RATE) / 252
@@ -500,7 +500,7 @@ def sharpe_of(r: np.ndarray) -> float:
 
 
 def commission(shares: float, value: float) -> float:
-    """Gebuehr des Brokers fuer eine Order."""
+    """Broker's fee for an order."""
     if shares <= 0:
         return 0.0
     return float(min(max(COMMISSION_MIN, COMMISSION_PER_SHARE * shares), COMMISSION_MAX_PCT * value))
@@ -511,19 +511,19 @@ def simulate_account(pairs: list[tuple[str, str]], sigs: dict, betas: dict, posi
                      skip: set | None = None, close_at_end: bool = True, margin_initial: float | None = -1.0,
                      margin_maintenance: float | None = -1.0, stop_level: float | None = None,
                      daily_loss_limit: float | None = None) -> dict:
-    """Konto in USD: ganze Stuecke, Gebuehren je Order, Leihgebuehr, Kreditzinsen, Margin Call, Totalverlust.
+    """Account in USD: whole shares, fees per order, borrowing fee, credit interest, margin call, total loss.
 
-    sigs[name]:      Tageswerte des Paares im Zeitraum (kurs_a, kurs_b, ggf. open_a, open_b)
-    positions[name]: Position am Tagesende (+1 / 0 / -1) aus simulate() - die Signale haengen nicht vom Konto ab
-    lev:             Zielhebel. Ein neues Paar bekommt  lev * Eigenkapital / Zahl der Paare  (Kauf- plus
-                     Leerverkaufsseite), berechnet mit Eigenkapital und Schlusskursen des Signaltags.
-    Stueckzahlen bleiben bis zum Ausstieg unveraendert (kein taegliches Nachjustieren).
-    skip:            {(Paar, Einstiegstag)}, die nicht eroeffnet werden (im Protokoll als nicht ausfuehrbar markiert)
-    margin_initial / margin_maintenance: Deckungsregeln dieses Kontos (-1 = die Einstellungen MARGIN_INITIAL /
-                     MARGIN_MAINTENANCE verwenden, None = keine Pruefung); margin_rules = False schaltet beide ab.
-    stop_level:      Das Konto wird geschlossen, wenn das Eigenkapital unter diesen Anteil des Startkapitals faellt.
-    daily_loss_limit: Das Konto wird geschlossen, wenn der Verlust eines Tages diesen Anteil des Kontostands vom
-                     Vorabend erreicht. Nach einer Schliessung handelt das Modell nicht weiter.
+    sigs[name]:      daily values of the pair in the period (kurs_a, kurs_b, if applicable open_a, open_b)
+    positions[name]: position at the end of the day (+1 / 0 / -1) from simulate() - the signals do not depend on the account
+    lev:             target leverage. A new pair gets  lev * equity / number of pairs  (long plus
+                     short side), calculated with the equity and closing prices of the signal day.
+    Share quantities remain unchanged until the exit (no daily readjustment).
+    skip:            {(pair, entry day)} that are not opened (marked as not executable in the protocol)
+    margin_initial / margin_maintenance: coverage rules of this account (-1 = use the settings MARGIN_INITIAL /
+                     MARGIN_MAINTENANCE, None = no check); margin_rules = False switches both off.
+    stop_level:      The account is closed if the equity falls below this share of the starting capital.
+    daily_loss_limit: The account is closed if the loss of one day reaches this share of the account balance of the
+                     previous evening. After a closure, the model no longer trades.
     """
     m_init = MARGIN_INITIAL if margin_initial == -1.0 else margin_initial
     m_maint = MARGIN_MAINTENANCE if margin_maintenance == -1.0 else margin_maintenance
@@ -545,15 +545,15 @@ def simulate_account(pairs: list[tuple[str, str]], sigs: dict, betas: dict, posi
 
     equity = np.full(n, float(capital))
     gross_ratio = np.zeros(n)
-    hold = {nm: [0.0, 0.0] for nm in names}                 # Stueck A, Stueck B (negativ = leerverkauft)
-    live: dict[str, dict] = {}                              # laufende Trades
+    hold = {nm: [0.0, 0.0] for nm in names}                 # shares A, shares B (negative = sold short)
+    live: dict[str, dict] = {}                              # ongoing trades
     orders, trades, margin_calls = [], [], []
     cost = {"gebuehren": 0.0, "slippage": 0.0, "leihe": 0.0, "zinsen": 0.0}
     count = {"orders": 0, "zu_klein": 0, "margin_abgelehnt": 0, "nicht_ausfuehrbar": 0}
     ruin_day = None
     close_reason = ""
     E = float(capital)
-    day_start = float(capital)                              # Eigenkapital zum Schlusskurs des Vortags
+    day_start = float(capital)                              # equity at the closing price of the previous day
 
     def num(x: float) -> float:
         return 0.0 if x != x else float(x)
@@ -562,7 +562,7 @@ def simulate_account(pairs: list[tuple[str, str]], sigs: dict, betas: dict, posi
         return sum(abs(hold[nm][0]) * num(pa[nm][t]) + abs(hold[nm][1]) * num(pb[nm][t]) for nm in names)
 
     def order(t: int, nm: str, k: int, shares: float, price: float, what: str) -> float:
-        """Eine Order buchen. shares > 0 = Kauf, < 0 = Verkauf. Gibt die Kosten zurueck."""
+        """Book an order. shares > 0 = purchase, < 0 = sale. Returns the costs."""
         value = abs(shares) * price
         fee, sl = commission(abs(shares), value), slip * value
         cost["gebuehren"] += fee
@@ -574,7 +574,7 @@ def simulate_account(pairs: list[tuple[str, str]], sigs: dict, betas: dict, posi
         return fee + sl
 
     def close_pair(t: int, nm: str, pa: float, pb: float, why: str) -> float:
-        """Position eines Paares schliessen. Gibt die Kosten zurueck."""
+        """Close the position of a pair. Returns the costs."""
         sa, sb = hold[nm]
         c = 0.0
         if sa:
@@ -592,7 +592,7 @@ def simulate_account(pairs: list[tuple[str, str]], sigs: dict, betas: dict, posi
         return c
 
     def check(t: int, pa: dict, pb: dict) -> None:
-        """Totalverlust und Margin Call pruefen (pa, pb = aktuelle Kurse)."""
+        """Check for total loss and margin call (pa, pb = current prices)."""
         nonlocal E, ruin_day, close_reason
         g = gross(pa, pb, t)
         why = ""
@@ -602,10 +602,10 @@ def simulate_account(pairs: list[tuple[str, str]], sigs: dict, betas: dict, posi
             why = "Gesamtverlust"
         elif daily_loss_limit is not None and day_start - E >= daily_loss_limit * day_start:
             why = "Tagesverlust"
-        if why:                                             # Konto wird geschlossen: Modell faellt aus
+        if why:                                             # account is closed: model drops out
             for nm in names:
                 if hold[nm][0] or hold[nm][1]:
-                    if E > 0:                               # Positionen werden noch regulaer geschlossen
+                    if E > 0:                               # positions are still closed regularly
                         E -= close_pair(t, nm, num(pa[nm][t]), num(pb[nm][t]), why)
                     else:
                         hold[nm] = [0.0, 0.0]
@@ -626,9 +626,9 @@ def simulate_account(pairs: list[tuple[str, str]], sigs: dict, betas: dict, posi
         if ruin_day is not None:
             equity[t] = E
             continue
-        E_signal = E                                        # Eigenkapital zum Schlusskurs des Vortags
+        E_signal = E                                        # equity at the closing price of the previous day
         day_start = E
-        # ---- Leihgebuehr und Kreditzinsen fuer die ueber Nacht gehaltenen Positionen (Werte zum Vortagesschluss)
+        # ---- borrowing fee and credit interest for the positions held overnight (values at the previous day's close)
         if t > 0:
             long_mv = short_mv = 0.0
             for nm in names:
@@ -644,24 +644,24 @@ def simulate_account(pairs: list[tuple[str, str]], sigs: dict, betas: dict, posi
             cost["leihe"] += borrow
             cost["zinsen"] += interest
             E -= borrow + interest
-        # ---- Kursbewegung bis zur Ausfuehrung
-        if at_open and t > 0:                               # ueber Nacht: Vortagesschluss -> Eroeffnung
+        # ---- price move until the execution
+        if at_open and t > 0:                               # overnight: previous day's close -> opening
             for nm in names:
                 if hold[nm][0] or hold[nm][1]:
                     pnl = hold[nm][0] * num(oa[nm][t] - ca[nm][t - 1]) + hold[nm][1] * num(ob[nm][t] - cb[nm][t - 1])
                     E += pnl
                     live[nm]["ergebnis_usd"] += pnl
             check(t, oa, ob)
-        elif not at_open and t > 0:                         # ganzer Tag: Schluss -> Schluss
+        elif not at_open and t > 0:                         # whole day: close -> close
             for nm in names:
                 if hold[nm][0] or hold[nm][1]:
                     pnl = hold[nm][0] * num(ca[nm][t] - ca[nm][t - 1]) + hold[nm][1] * num(cb[nm][t] - cb[nm][t - 1])
                     E += pnl
                     live[nm]["ergebnis_usd"] += pnl
             check(t, ca, cb)
-        # ---- Orders: erst schliessen, dann eroeffnen
+        # ---- orders: first close, then open
         if ruin_day is None:
-            xa, xb = (oa, ob) if at_open else (ca, cb)      # Ausfuehrungskurse
+            xa, xb = (oa, ob) if at_open else (ca, cb)      # execution prices
             changed = [nm for nm in names if pos[nm][t] != (pos[nm][t - 1] if t > 0 else 0.0)]
             for nm in changed:
                 if hold[nm][0] or hold[nm][1]:
@@ -673,7 +673,7 @@ def simulate_account(pairs: list[tuple[str, str]], sigs: dict, betas: dict, posi
                 if (nm, idx[t].date()) in skip:
                     count["nicht_ausfuehrbar"] += 1
                     continue
-                # Groesse: mit Eigenkapital und Schlusskursen des Signaltags (vor der Eroeffnung bekannt)
+                # size: with equity and closing prices of the signal day (known before the opening)
                 if EXECUTION == "close":
                     e_size, sa_price, sb_price = E, num(ca[nm][t]), num(cb[nm][t])
                 else:
@@ -701,7 +701,7 @@ def simulate_account(pairs: list[tuple[str, str]], sigs: dict, betas: dict, posi
                 live[nm] = {"phase": phase, "paar": nm, "einstieg": idx[t].date(), "ausstieg": None,
                             "richtung": direction(p, a_, b_), "stueck_a": int(na), "stueck_b": int(nb),
                             "wert_a_usd": na * pa_x, "wert_b_usd": nb * pb_x, "grund": "offen", "ergebnis_usd": -c}
-            if at_open:                                     # Tagesverlauf: Eroeffnung -> Schluss
+            if at_open:                                     # during the day: opening -> close
                 for nm in names:
                     if hold[nm][0] or hold[nm][1]:
                         pnl = hold[nm][0] * num(ca[nm][t] - oa[nm][t]) + hold[nm][1] * num(cb[nm][t] - ob[nm][t])
@@ -711,7 +711,7 @@ def simulate_account(pairs: list[tuple[str, str]], sigs: dict, betas: dict, posi
         equity[t] = max(E, 0.0)
         gross_ratio[t] = gross(ca, cb, t) / E if E > 0 else 0.0
 
-    # ---- am Ende offene Positionen: zum letzten Schlusskurs bewertet; Schlusskosten nur in der Rueckrechnung
+    # ---- positions open at the end: valued at the last closing price; closing costs only in the backtest
     holdings = {nm: (int(hold[nm][0]), int(hold[nm][1])) for nm in names}
     if ruin_day is None:
         for nm in list(live):
@@ -761,7 +761,7 @@ def simulate_account(pairs: list[tuple[str, str]], sigs: dict, betas: dict, posi
 
 
 def usable_pairs(px: pd.DataFrame) -> list[tuple[str, str]]:
-    """Paare, fuer die beide Aktien Kurse haben."""
+    """Pairs for which both stocks have prices."""
     ok = []
     for a, b in PAIRS:
         if a in px.columns and b in px.columns and px[[a, b]].dropna().shape[0] > LOOKBACK + 20:
@@ -784,9 +784,9 @@ def check_settings() -> None:
         raise SystemExit("PAIRS enthaelt ein Paar doppelt.")
 
 
-# ------------------------------------------------------------------------------------------ Diagramm
+# ------------------------------------------------------------------------------------------ Chart
 def make_chart(curves: dict[str, pd.Series], labels: dict[str, str], test_start: pd.Timestamp) -> None:
-    """Aufgelaufene Rendite ohne Hebel: Korb und jedes Paar als kleines Einzeldiagramm -> output/modell.png."""
+    """Cumulative return without leverage: basket and each pair as a small individual chart -> output/modell.png."""
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -837,9 +837,9 @@ def make_chart(curves: dict[str, pd.Series], labels: dict[str, str], test_start:
     log(f"Diagramm gespeichert: {path.name}")
 
 
-# ------------------------------------------------------------------------------------------ Rueckrechnung
+# ------------------------------------------------------------------------------------------ Backtest
 def profiles(kelly_f: float) -> list[dict]:
-    """Die drei Konto-Profile: ohne Hebel, privat (Reg T), institutionell (Viertel-Kelly o. ae., ohne Reg T)."""
+    """The three account profiles: without leverage, private (Reg T), institutional (quarter Kelly or similar, without Reg T)."""
     out = [{"name": "Ohne Hebel", "slug": "ohne_hebel", "lev": 1.0, "init": None, "maint": None, "stop": None,
             "daily": None, "note": "Hebel 1"},
            {"name": "Privat", "slug": "privat", "lev": float(RETAIL_LEVERAGE), "init": MARGIN_INITIAL,
@@ -871,7 +871,7 @@ def run_backtest(px: pd.DataFrame, show_grid: bool) -> None:
     phases = {"Training": train, "Test": test}
     pairs = usable_pairs(px)
 
-    # ---- Signale und Renditen je Paar (ohne Hebel, ohne Konto): zeigt die Guete der Signale
+    # ---- signals and returns per pair (without leverage, without account): shows the quality of the signals
     sigs, betas, raw, trades = {}, {}, {}, []
     pair_rows = []
     for a, b in pairs:
@@ -898,12 +898,12 @@ def run_backtest(px: pd.DataFrame, show_grid: bool) -> None:
     all_trades = pd.concat(trades, ignore_index=True)
     port = {ph: combine([raw[(pair_name(a, b), ph)] for a, b in pairs]) for ph in phases}
 
-    # ---- Kelly-Hebel des Korbs aus dem Training -> Zielhebel des Profils "Institutionell"
+    # ---- Kelly leverage of the basket from the training -> target leverage of the profile "Institutionell"
     k_train, k_test = kelly_leverage(port["Training"]), kelly_leverage(port["Test"])
     f = k_train["kelly_hebel"]
     profs = profiles(f)
 
-    # ---- Konten: ganze Stuecke, Gebuehren, Regeln des jeweiligen Profils; jede Phase beginnt mit CAPITAL
+    # ---- accounts: whole shares, fees, rules of the respective profile; each phase starts with CAPITAL
     def account(ph: str, leverage: float, **kw) -> dict:
         m = phases[ph]
         return simulate_account(pairs, {n: sigs[n][m] for n in sigs}, betas,
@@ -914,20 +914,20 @@ def run_backtest(px: pd.DataFrame, show_grid: bool) -> None:
                        stop_level=pf["stop"], daily_loss_limit=pf["daily"], **kw)
 
     acct = {(pf["slug"], ph): run_profile(pf, ph) for pf in profs for ph in phases}
-    base = profs[0]["slug"]                                 # Konto ohne Hebel
-    for r in pair_rows:                                     # Ergebnis je Paar im Konto ohne Hebel
+    base = profs[0]["slug"]                                 # account without leverage
+    for r in pair_rows:                                     # result per pair in the account without leverage
         for ph in phases:
             t = acct[(base, ph)]["trades"]
             r[f"konto_usd_{ph.lower()}"] = float(t.loc[t["paar"] == r["paar"], "ergebnis_usd"].sum())
     pair_tab = pd.DataFrame(pair_rows)
 
-    # ---- Dateien
+    # ---- Files
     daily = pd.concat([pd.DataFrame({"phase": ph, "offene_paare": port[ph]["position"].astype(int),
                                      "korb_rendite_ohne_hebel": port[ph]["netto"],
                                      **{f"konto_usd_{pf['slug']}": acct[(pf["slug"], ph)]["equity"] for pf in profs},
                                      **{f"hebel_{pf['slug']}": acct[(pf["slug"], ph)]["gross_ratio"] for pf in profs}})
                        for ph in phases])
-    for a, b in pairs:                                      # Tagesrendite jedes Paares ohne Hebel
+    for a, b in pairs:                                      # daily return of each pair without leverage
         name = pair_name(a, b)
         daily[f"netto_{name}"] = pd.concat([raw[(name, ph)]["netto"] for ph in phases])
     save_csv(daily.rename_axis("datum"), "tageswerte.csv", index=True)
@@ -941,7 +941,7 @@ def run_backtest(px: pd.DataFrame, show_grid: bool) -> None:
     if calls:
         save_csv(pd.DataFrame(calls), "margin_calls.csv")
 
-    # ---- Ausgabe
+    # ---- Output
     exits = [f"z-Score zurueck bei {EXIT_Z:g}"]
     if MAX_HOLD_DAYS is not None:
         exits.append(f"spaetestens nach {MAX_HOLD_DAYS} Handelstagen")
@@ -1043,7 +1043,7 @@ def run_backtest(px: pd.DataFrame, show_grid: bool) -> None:
           "aendert, bis TEST gut aussieht, hat keinen Test mehr. Wirklich neue Daten liefert nur das Protokoll\n"
           "(--protokoll).")
 
-    # ---- Kostenstaffel: wie viel Slippage vertraegt das Modell?
+    # ---- cost scale: how much slippage can the model tolerate?
     print()
     print("-" * 110)
     print("KOSTENSTAFFEL  -  Wachstum p. a. je Profil bei unterschiedlicher Slippage je Order (Gebuehren wie oben)")
@@ -1060,7 +1060,7 @@ def run_backtest(px: pd.DataFrame, show_grid: bool) -> None:
         ladder_rows.append({"slippage_bp": bp, **{f"{ph.lower()}_{pf['slug']}_{k}": ks[(pf["slug"], ph)][k]
                                                   for ph in phases for pf in profs
                                                   for k in ("endkapital", "wachstum_pa", "sharpe")}})
-    for ph in phases:                                       # Slippage, bei der vom Gewinn nichts uebrig bliebe
+    for ph in phases:                                       # slippage at which nothing of the profit would be left
         a0 = run_profile(profs[0], ph, slippage_bps=0)
         gain, vol = a0["kpi"]["endkapital"] - CAPITAL, a0["order_value"]
         if vol > 0 and gain > 0:
@@ -1068,7 +1068,7 @@ def run_backtest(px: pd.DataFrame, show_grid: bool) -> None:
                   f"Order (Naeherung: Gewinn ohne Slippage / Orderwert).")
     save_csv(pd.DataFrame(ladder_rows), "kostenstaffel.csv")
 
-    # ---- Kelly-Formel und Stresstest: waere mit mehr Hebel ein Totalverlust eingetreten?
+    # ---- Kelly formula and stress test: would a total loss have occurred with more leverage?
     print()
     print("-" * 110)
     print("KELLY-FORMEL UND HEBEL-STRESSTEST")
@@ -1124,7 +1124,7 @@ def run_backtest(px: pd.DataFrame, show_grid: bool) -> None:
               "Spitzenwert zwischen schwachen Nachbarn ist meist Zufall. Waehrend das Protokoll laeuft, die\n"
               "Einstellungen nicht mehr aendern.")
 
-    # ---- Diagramm: Konto ohne Hebel und Paare
+    # ---- chart: account without leverage and pairs
     eq_all = pd.concat([acct[(base, ph)]["equity"] / CAPITAL - 1 for ph in phases])
     first = f"KONTO ohne Hebel ({usd(CAPITAL)} USD je Phase)"
     curves = {first: eq_all}
@@ -1139,13 +1139,13 @@ def run_backtest(px: pd.DataFrame, show_grid: bool) -> None:
           f"            kostenstaffel.csv, hebel_stresstest.csv, modell.png)")
 
 
-# ------------------------------------------------------------------------------------------ Protokoll
+# ------------------------------------------------------------------------------------------ Protocol
 def frozen_settings() -> dict:
-    """Alles, was die Signale bestimmt. Diese Werte duerfen sich waehrend des Protokolls nicht aendern."""
+    """Everything that determines the signals. These values must not change during the protocol."""
     s = {"PAIRS": [list(p) for p in PAIRS], "Z_MODE": Z_MODE, "LOOKBACK": LOOKBACK, "ENTRY_Z": ENTRY_Z,
          "EXIT_Z": EXIT_Z, "MAX_HOLD_DAYS": MAX_HOLD_DAYS, "STOP_Z": STOP_Z, "HEDGE_RATIO": HEDGE_RATIO,
          "EXECUTION": EXECUTION}
-    if Z_MODE == "training" or HEDGE_RATIO == "training":   # nur dann haengen die Signale vom Trainingszeitraum ab
+    if Z_MODE == "training" or HEDGE_RATIO == "training":   # only then do the signals depend on the training period
         s["TRAIN_YEARS"] = TRAIN_YEARS
     return s
 
@@ -1169,7 +1169,7 @@ def read_start() -> dict | None:
 
 
 def parse_dates(col: pd.Series) -> pd.Series:
-    """Datumsspalte lesen, auch wenn Excel sie beim Speichern in 05.10.2026 umgeschrieben hat."""
+    """Read the date column, even if Excel has rewritten it as 05.10.2026 when saving."""
     s = col.astype(str).str.strip()
     iso = pd.to_datetime(s, format="%Y-%m-%d", errors="coerce")
     de = pd.to_datetime(s, format="%d.%m.%Y", errors="coerce")
@@ -1185,7 +1185,7 @@ def to_float(col: pd.Series) -> pd.Series:
 
 
 def order_text(want: float, pos: float, a: str, b: str) -> str:
-    """Order, die nach dem Schlusskurs eines Tages fuer die naechste Ausfuehrung ansteht."""
+    """Order that is pending after the closing price of a day for the next execution."""
     if want == pos:
         return "halten" if pos != 0 else ""
     if want == 0:
@@ -1198,7 +1198,7 @@ def run_protocol(px: pd.DataFrame, restart: bool) -> None:
     last = idx[-1]
     now = time.strftime("%Y-%m-%d %H:%M")
 
-    # ---- Start: Einstellungen einfrieren oder mit dem eingefrorenen Stand vergleichen
+    # ---- start: freeze the settings or compare them with the frozen state
     if restart and PROT_DIR.exists():
         target = BASE_DIR / f"protokoll_alt_{time.strftime('%Y%m%d_%H%M%S')}"
         shutil.move(str(PROT_DIR), str(target))
@@ -1218,7 +1218,7 @@ def run_protocol(px: pd.DataFrame, restart: bool) -> None:
                 "Die Einstellungen im Skript weichen vom eingefrorenen Stand des Protokolls ab:\n    "
                 + "\n    ".join(diff)
                 + "\nEntweder die Einstellungen zuruecksetzen (siehe protokoll/start.json) oder mit\n"
-                  "    python pair_modell.py --protokoll-neu\nein neues Protokoll beginnen. Das alte wird archiviert, "
+                  "    python pair_model.py --protokoll-neu\nein neues Protokoll beginnen. Das alte wird archiviert, "
                   "die bisherigen Ergebnisse zaehlen dann nicht mehr.")
     start_day = pd.Timestamp(start["starttag"])
     train = np.asarray((idx > start_day - pd.DateOffset(months=round(12 * TRAIN_YEARS))) & (idx <= start_day))
@@ -1230,7 +1230,7 @@ def run_protocol(px: pd.DataFrame, restart: bool) -> None:
     next_label = {"close": "zum naechsten Schlusskurs", "next_open": "zur naechsten Eroeffnung",
                   "next_close": "zum naechsten Schlusskurs"}[EXECUTION]
 
-    # ---- jedes Paar ab dem Starttag handeln (ohne Hebel)
+    # ---- trade each pair from the start day (without leverage)
     sigs, betas, results, trades, log_rows, order_rows, pair_rows = {}, {}, {}, [], [], [], []
     for a, b in pairs:
         name = pair_name(a, b)
@@ -1273,7 +1273,7 @@ def run_protocol(px: pd.DataFrame, restart: bool) -> None:
                           "sharpe": sharpe_of(res["netto"].to_numpy()) if n_days >= MIN_DAYS_FOR_SHARPE else float("nan"),
                           "schlechtester_trade": float(tr["ergebnis"].min()) if len(tr) else float("nan")})
 
-    # ---- Konto seit dem Starttag: CAPITAL, ohne Hebel, ganze Stuecke, Gebuehren des Brokers
+    # ---- account since the start day: CAPITAL, without leverage, whole shares, fees of the broker
     fills_path = PROT_DIR / "ausfuehrungen.csv"
     cols = ["datum", "paar", "aktie", "order", "seite", "stueck", "ausfuehrung", "modellkurs", "realer_kurs",
             "abweichung_bp", "ausfuehrbar"]
@@ -1282,7 +1282,7 @@ def run_protocol(px: pd.DataFrame, restart: bool) -> None:
     if fills_path.exists():
         old_fills = read_semicolon_csv(fills_path)
         old_fills["datum"] = parse_dates(old_fills["datum"]).dt.strftime("%Y-%m-%d")
-        for c in cols:                                      # aeltere Dateien haben noch nicht alle Spalten
+        for c in cols:                                      # older files do not yet have all columns
             if c not in old_fills.columns:
                 old_fills[c] = "ja" if c == "ausfuehrbar" else ""
         no = old_fills["ausfuehrbar"].astype(str).str.strip().str.lower().str.startswith("n")
@@ -1305,7 +1305,7 @@ def run_protocol(px: pd.DataFrame, restart: bool) -> None:
                                "order": o["order"], "seite": o["seite"], "stueck": o["stueck"],
                                "ausfuehrung": exec_label, "modellkurs": round(float(o["modellkurs"]), 4),
                                "realer_kurs": "", "abweichung_bp": "", "ausfuehrbar": "ja"})
-    # Orders fuer die naechste Ausfuehrung mit Stueckzahlen (Eigenkapital und Schlusskurse von heute)
+    # orders for the next execution with share quantities (equity and closing prices of today)
     for r, (a, b) in zip(pair_rows, pairs):
         want_, pos_ = r.get("want", 0.0), r.get("pos", 0.0)
         if want_ == pos_:
@@ -1325,13 +1325,13 @@ def run_protocol(px: pd.DataFrame, restart: bool) -> None:
         elif acct is not None:
             ha, hb = acct["holdings"][name]
             if ha == 0 and hb == 0:
-                r["order"] = ""                             # im Konto gar nicht eroeffnet
+                r["order"] = ""                             # not opened in the account at all
             else:
                 r["order"] = (f"schliessen: {a} {abs(ha)} Stueck {'verkaufen' if ha > 0 else 'zurueckkaufen'} / "
                               f"{b} {abs(hb)} Stueck {'verkaufen' if hb > 0 else 'zurueckkaufen'}")
 
-    # ---- Hebel-Varianten: feste Hebel und der Kelly-Hebel aus den Jahren VOR dem Starttag.
-    # Der Kelly-Hebel wird einmal berechnet und in hebel.json festgehalten, damit er sich spaeter nicht aendert.
+    # ---- leverage variants: fixed leverage values and the Kelly leverage from the years BEFORE the start day.
+    # The Kelly leverage is calculated once and recorded in hebel.json so that it does not change later.
     lev_path = PROT_DIR / "hebel.json"
     if lev_path.exists():
         kelly_info = json.loads(lev_path.read_text(encoding="utf-8"))
@@ -1353,7 +1353,7 @@ def run_protocol(px: pd.DataFrame, restart: bool) -> None:
                                          margin_maintenance=pf["maint"], stop_level=pf["stop"],
                                          daily_loss_limit=pf["daily"])))
 
-    # ---- protokoll.csv: nur neue Zeilen anhaengen, bestehende nie aendern
+    # ---- protokoll.csv: only append new rows, never change existing ones
     log_path = PROT_DIR / "protokoll.csv"
     new_log = pd.DataFrame(log_rows)
     n_new, added_late = 0, False
@@ -1374,7 +1374,7 @@ def run_protocol(px: pd.DataFrame, restart: bool) -> None:
                 log("protokoll.csv ist gesperrt (in Excel offen?) - die heutigen Zeilen werden beim naechsten Lauf "
                     "nachgetragen")
 
-    # ---- ausfuehrungen.csv: neue Orders ergaenzen, eingetragene reale Kurse behalten, Abweichung berechnen
+    # ---- ausfuehrungen.csv: add new orders, keep entered real prices, calculate the deviation
     fills = pd.DataFrame(order_rows, columns=cols)
     if old_fills is not None:
         old = old_fills
@@ -1383,7 +1383,7 @@ def run_protocol(px: pd.DataFrame, restart: bool) -> None:
         fills = fills[[(d, p, t) not in key_old for d, p, t in zip(fills["datum"], fills["paar"], fills["aktie"])]]
         fills = pd.concat([old[cols], fills], ignore_index=True)
     real, model = to_float(fills["realer_kurs"]), to_float(fills["modellkurs"])
-    # positiv = schlechter als das Modell: teurer gekauft oder billiger verkauft
+    # positive = worse than the model: bought more expensively or sold more cheaply
     dev = np.where(fills["seite"] == "kauf", real / model - 1, 1 - real / model) * 1e4
     fills["abweichung_bp"] = pd.Series(dev, index=fills.index).round(1)
     fills["realer_kurs"] = real
@@ -1396,7 +1396,7 @@ def run_protocol(px: pd.DataFrame, restart: bool) -> None:
             log("ausfuehrungen.csv ist gesperrt (in Excel offen?) - neue Orders werden beim naechsten Lauf ergaenzt")
     measured = fills["abweichung_bp"].dropna()
 
-    # ---- Ergebnisdateien
+    # ---- result files
     pair_tab = pd.DataFrame(pair_rows).drop(columns=["want", "pos"], errors="ignore")
     save_csv(pair_tab, "ergebnisse_paare.csv", folder=PROT_DIR)
     all_trades = pd.concat(trades, ignore_index=True) if trades else pd.DataFrame()
@@ -1406,7 +1406,7 @@ def run_protocol(px: pd.DataFrame, restart: bool) -> None:
                               "konto_rendite_seit_start": acct["equity"] / CAPITAL - 1,
                               "korb_rendite": port["netto"],
                               "korb_aufgelaufen": np.cumprod(1 + port["netto"]) - 1})
-        for pf, run in lev_runs:                            # Kontostand je Profil
+        for pf, run in lev_runs:                            # account balance per profile
             daily[f"konto_usd_{pf['slug']}"] = run["equity"].round(2)
         for a, b in pairs:
             name = pair_name(a, b)
@@ -1423,7 +1423,7 @@ def run_protocol(px: pd.DataFrame, restart: bool) -> None:
         save_csv(all_trades, "trades.csv", folder=PROT_DIR)
         save_csv(acct["trades"], "konto_trades.csv", folder=PROT_DIR)
 
-    # ---- Ausgabe
+    # ---- Output
     print()
     print("=" * 96)
     print(f"PROTOKOLL (Paper Trading)  -  {len(pairs)} Paare, ohne Hebel, Konto {usd(CAPITAL)} USD  -  Kurse bis {last:%d.%m.%Y}")
@@ -1478,7 +1478,7 @@ def run_protocol(px: pd.DataFrame, restart: bool) -> None:
             kc = acct_clean["kpi"]
             print(f"    Ohne die {kc['nicht_ausfuehrbar']} als nicht ausfuehrbar markierten Trades: Stand {usd(kc['endkapital'])} USD "
                   f"({kc['gesamtrendite']:+.2%})")
-        # ---- Die drei Profile
+        # ---- The three profiles
         print(f"\nDREI PROFILE SEIT START  -  jeweils ein eigenes Konto mit {usd(CAPITAL)} USD, gleiche Signale, andere Stueckzahlen")
         w = 16
         print(f"{'':<34}" + "".join(f"{pf['name']:>{w}}" for pf, _ in lev_runs))
@@ -1520,17 +1520,17 @@ def run_protocol(px: pd.DataFrame, restart: bool) -> None:
           f"         ergebnisse_hebel.csv, trades.csv, konto_trades.csv)")
 
 
-# ------------------------------------------------------------------------------------------ Ablauf
+# ------------------------------------------------------------------------------------------ Procedure
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Mean-Reversion-Modell fuer einen Korb von Aktienpaaren")
+    ap = argparse.ArgumentParser(description="Mean-reversion model for a basket of stock pairs")
     ap.add_argument("--grid", action="store_true",
-                    help="Sharpe Ratio des Korbs im Training fuer mehrere Einstiegs- und Ausstiegswerte zeigen")
+                    help="show the Sharpe ratio of the basket in training for several entry and exit values")
     ap.add_argument("--protokoll", action="store_true",
-                    help="Protokollmodus (Paper Trading): Tagesstand festhalten, Orders und Ergebnis seit Start")
+                    help="protocol mode (paper trading): record the daily status, orders and result since start")
     ap.add_argument("--protokoll-neu", dest="protokoll_neu", action="store_true",
-                    help="Protokoll neu beginnen; das bisherige wird archiviert")
-    ap.add_argument("--refresh", action="store_true", help="Kurse neu von Yahoo laden")
-    ap.add_argument("--stichtag", default=None, help=argparse.SUPPRESS)     # nur zum Testen: Kurse bis zu diesem Tag
+                    help="start the protocol anew; the previous one is archived")
+    ap.add_argument("--refresh", action="store_true", help="reload prices from Yahoo")
+    ap.add_argument("--stichtag", default=None, help=argparse.SUPPRESS)     # for testing only: prices up to this day
     args = ap.parse_args()
     check_settings()
 

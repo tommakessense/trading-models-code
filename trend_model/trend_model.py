@@ -1,60 +1,60 @@
 """
-Trendfolge-Modell fuer Xetra-Aktien und -ETFs mit Medienecho (Stimmungsanalyse)
+Trend-following model for Xetra stocks and ETFs with media echo (sentiment analysis)
 ================================================================================
 
-Einstieg  : klassische Trendsignale - neues 50- bzw. 200-Tage-Hoch (long) oder -Tief (short) und das
-            Kreuzen der 50- ueber die 200-Tage-Linie (Golden Cross / Death Cross). Bei Aktien wird das Signal
-            zusaetzlich mit dem Medienecho gefiltert (GDELT: Zahl der Artikel und deren Tonalitaet).
-Ausstieg  : fuenf Varianten, alle in der Rueckrechnung verglichen
-            Zeit kurz (aggressiv)       nach 20 Handelstagen
-            Zeit lang (konservativ)     nach 120 Handelstagen
-            Trend                       Schlusskurs unter dem 20-Tage-Tief (short: ueber dem 20-Tage-Hoch)
-            Preis aggressiv             Stop-Loss 5 %, Gewinnmitnahme +10 %, nachgezogener Stopp 8 %
-            Preis konservativ           Stop-Loss 15 %, keine feste Gewinnmitnahme, nachgezogener Stopp 25 %
-Universum : Xetra-Aktien und -ETFs aus dem Cache des Screeners (Ticker <Kuerzel>.DE), nur ausreichend
-            liquide Titel (Median-Umsatz auf Xetra im Vorjahr), ETFs ohne gehebelte/Short- und Geldmarkt-ETFs.
-Pruefung  : Portfolio mit 50.000 EUR und hoechstens 10 Positionen, IBKR-Gebuehren und Slippage.
-            Lernzeitraum 2018-2022 (Auswahl der besten Variante), Testzeitraum ab 2023.
+Entry     : classic trend signals - new 50- or 200-day high (long) or low (short) and the
+            crossing of the 50-day above the 200-day average (golden cross / death cross). For stocks the signal is
+            additionally filtered with the media echo (GDELT: number of articles and their tone).
+Exit      : five variants, all compared in the backtest
+            Zeit kurz (aggressiv)       after 20 trading days
+            Zeit lang (konservativ)     after 120 trading days
+            Trend                       closing price below the 20-day low (short: above the 20-day high)
+            Preis aggressiv             stop loss 5 %, profit taking +10 %, trailing stop 8 %
+            Preis konservativ           stop loss 15 %, no fixed profit taking, trailing stop 25 %
+Universe  : Xetra stocks and ETFs from the cache of the screener (ticker <symbol>.DE), only sufficiently
+            liquid securities (median turnover on Xetra in the previous year), ETFs without leveraged/short and money market ETFs.
+Testing   : portfolio with 50,000 EUR and at most 10 positions, IBKR fees and slippage.
+            Learning period 2018-2022 (selection of the best variant), test period from 2023.
 
-Medienecho (GDELT DOC 2.0, frei, ohne Anmeldung): je Aktie und Tag die Zahl passender Artikel und deren
-mittlere Tonalitaet. Daraus (immer nur mit Daten bis zum Vortag):
-    stimmung_z  = Tonalitaet der letzten 7 Tage im Vergleich zum eigenen Jahresmittel (z-Wert)
-    echo        = Artikel der letzten 7 Tage im Verhaeltnis zum Durchschnitt der letzten 90 Tage
-Stimmungsvarianten: ohne | Stimmung positiv | Echo + Stimmung | Veto bei schlechter Stimmung
+Media echo (GDELT DOC 2.0, free, without registration): per stock and day the number of matching articles and their
+average tone. From this (always only with data up to the previous day):
+    stimmung_z  = tone of the last 7 days compared with its own annual mean (z-value)
+    echo        = articles of the last 7 days relative to the average of the last 90 days
+Sentiment variants: ohne | Stimmung positiv | Echo + Stimmung | Veto bei schlechter Stimmung
 
-Aufruf (im Ordner trend_modell):
-    ..\\.venv\\python.exe trend_modell.py               Rueckrechnung aller Varianten (laedt GDELT-Daten)
-    ..\\.venv\\python.exe trend_modell.py --nur-kurse   Rueckrechnung ohne Medienecho
-    ..\\.venv\\python.exe trend_modell.py --heute       heutige Signale mit Medienecho und Ueberschriften
-    ..\\.venv\\python.exe trend_modell.py --refresh     Medienecho-Daten vollstaendig neu laden
-    ..\\.venv\\python.exe trend_modell.py --nur-medienecho  nur Medienecho laden (abbrechbar, setzt spaeter fort)
-    ..\\.venv\\python.exe trend_modell.py --max-aktien 100  Medienecho nur fuer die 100 liquidesten Aktien
-    ..\\.venv\\python.exe trend_modell.py --mit-pleiten zusaetzlich mit Pleitefaellen (Wirecard usw.) rechnen
-                                                     und mit dem Ergebnis ohne sie vergleichen
-    ..\\.venv\\python.exe trend_modell.py --nur-cache   Medienecho nur aus dem Cache (kein GDELT-Download)
-    ..\\.venv\\python.exe trend_modell.py --nur-cache --placebo   zusaetzlich Placebo-Pruefung der Stimmungs-
-                                                     filter (200 Zufallsfilter; --placebo 50 fuer einen Schnelltest)
+Usage (in the folder trend_model):
+    ..\\.venv\\python.exe trend_model.py               backtest of all variants (loads GDELT data)
+    ..\\.venv\\python.exe trend_model.py --nur-kurse   backtest without media echo
+    ..\\.venv\\python.exe trend_model.py --heute       today's signals with media echo and headlines
+    ..\\.venv\\python.exe trend_model.py --refresh     reload media echo data completely
+    ..\\.venv\\python.exe trend_model.py --nur-medienecho  load only the media echo (can be aborted, continues later)
+    ..\\.venv\\python.exe trend_model.py --max-aktien 100  media echo only for the 100 most liquid stocks
+    ..\\.venv\\python.exe trend_model.py --mit-pleiten additionally calculate with bankruptcy cases (Wirecard etc.)
+                                                     and compare with the result without them
+    ..\\.venv\\python.exe trend_model.py --nur-cache   media echo only from the cache (no GDELT download)
+    ..\\.venv\\python.exe trend_model.py --nur-cache --placebo   additionally placebo test of the sentiment
+                                                     filters (200 random filters; --placebo 50 for a quick test)
 
-Pruefung der Stimmungsfilter (laeuft bei jeder Rueckrechnung mit Medienecho; Ergebnis pruefung_trades.csv):
-    1) Trade-Vergleich: Rendite der Trades, die der Filter durchlaesst, gegen die, die er blockt - nur Signale
-       mit Mediendaten, p-Wert per Zufallsvertauschung innerhalb desselben Monats.
-    2) Placebo-Filter (mit --placebo, pruefung_placebo.csv): Zufallsfilter, die gleich viele Signale verwerfen,
-       im Portfolio - ist die Sharpe-Verbesserung des echten Filters groesser als die durch blosses Ausduennen?
+Testing of the sentiment filters (runs with every backtest with media echo; result pruefung_trades.csv):
+    1) Trade comparison: return of the trades the filter lets through against those it blocks - only signals
+       with media data, p-value via random permutation within the same month.
+    2) Placebo filters (with --placebo, pruefung_placebo.csv): random filters that discard the same number of signals,
+       in the portfolio - is the Sharpe improvement of the real filter greater than that from mere thinning out?
 
-Kosten: Ordergebuehren von Scalable Capital (BROKER, SCALABLE_TARIF; Xetra 1,99 EUR je Order im FREE-Tarif),
-fuer Leerverkaeufe und fuer Aktien in scalable_nicht_handelbar.csv die von Interactive Brokers (0,05 %, mind.
-3 EUR); dazu SLIPPAGE_BPS je Order.
+Costs: order fees of Scalable Capital (BROKER, SCALABLE_TARIF; Xetra 1.99 EUR per order in the FREE plan),
+for short sales and for stocks in scalable_nicht_handelbar.csv those of Interactive Brokers (0.05 %, min.
+3 EUR); plus SLIPPAGE_BPS per order.
 
-Pleitefaelle: Der Kurs-Cache enthaelt nur heute handelbare Aktien (Survivorship Bias). Mit --mit-pleiten
-werden bekannte Pleiten aus PLEITEN zusaetzlich gehandelt. Ihre Kurse versucht das Skript bei Yahoo (auch an
-Regionalboersen) zu finden; fehlen sie dort, kann man sie selbst als CSV in daten/pleiten/ ablegen, z. B.
-daten/pleiten/WDI.csv mit den Spalten Datum und Schluss (optional Volumen/Stuecke/Umsatz), etwa als Export
-der historischen Kurse von wallstreet-online.de oder ariva.de. Ab dem letzten Kurs gilt die Aktie als
-delistet: offene Positionen werden zum letzten Kurs x DELISTING_ERLOES geschlossen.
+Bankruptcy cases: The price cache contains only stocks that are tradable today (survivorship bias). With --mit-pleiten
+known bankruptcies from PLEITEN are additionally traded. The script tries to find their prices at Yahoo (also on
+regional exchanges); if they are missing there, you can put them yourself as a CSV in daten/pleiten/, e.g.
+daten/pleiten/WDI.csv with the columns Datum and Schluss (optionally Volumen/Stuecke/Umsatz), for instance as an export
+of the historical prices from wallstreet-online.de or ariva.de. From the last price on, the stock is considered
+delisted: open positions are closed at the last price x DELISTING_ERLOES.
 
-Der erste Lauf laedt fuer jede Aktie die GDELT-Daten seit 2017 (2 Abfragen je Aktie; GDELT erlaubt hoechstens
-eine Abfrage je 5 Sekunden und bremst bei Last staerker). Jede Aktie wird sofort gespeichert; ein Abbruch
-verliert nichts. Danach wird nur noch alle GDELT_MAX_AGE_DAYS Tage ergaenzt.
+The first run loads the GDELT data since 2017 for each stock (2 queries per stock; GDELT allows at most
+one query per 5 seconds and slows down more under load). Each stock is saved immediately; an abort
+loses nothing. After that, data is only added every GDELT_MAX_AGE_DAYS days.
 """
 from __future__ import annotations
 
@@ -72,7 +72,7 @@ import pandas as pd
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-# ======================================================================================= Einstellungen
+# ======================================================================================= Settings
 BASE_DIR = Path(__file__).resolve().parent
 SCREENER_CACHE = BASE_DIR.parent / "pair_screener" / "cache"
 STOCK_FILE, ETF_FILE = "prices_aktien.pkl", "prices.pkl"
@@ -80,28 +80,28 @@ INFO_FILE, XETRA_FILE = "info_aktien.csv", "xetra_allTradableInstruments.csv"
 DATA_DIR = BASE_DIR / "daten"
 GDELT_DIR = DATA_DIR / "gdelt"
 OUT_DIR = BASE_DIR / "ergebnisse"
-QUERY_FILE = BASE_DIR / "suchbegriffe.csv"     # wird beim ersten Lauf angelegt und darf bearbeitet werden
+QUERY_FILE = BASE_DIR / "suchbegriffe.csv"     # is created on the first run and may be edited
 
-# --- Zeitraeume
-START = "2018-01-01"             # erste Einstiege (Medienecho braucht ein Jahr Vorlauf ab 2017)
-TRAIN_END = "2022-12-31"         # Lernzeitraum bis hier, danach Testzeitraum
+# --- Periods
+START = "2018-01-01"             # first entries (media echo needs one year of lead time from 2017)
+TRAIN_END = "2022-12-31"         # learning period up to here, test period afterwards
 
-# --- Universum
-MIN_TURNOVER_EUR = 1e6           # Median-Tagesumsatz auf Xetra der letzten 250 Tage (bis Vortag)
+# --- Universe
+MIN_TURNOVER_EUR = 1e6           # median daily turnover on Xetra over the last 250 days (up to the previous day)
 MIN_PRICE = 1.0
-MIN_HISTORY = 250                # Handelstage mit Kurs vor dem ersten Signal
-ETF_MIN_VOL = 0.05               # ETFs mit kaum Schwankung (Geldmarkt, Kurzlaeufer) ausschliessen
-ETF_MAX_CORR = 0.97              # nahezu gleiche ETFs (z. B. mehrere S&P-500-ETFs): nur den liquidesten
+MIN_HISTORY = 250                # trading days with a price before the first signal
+ETF_MIN_VOL = 0.05               # exclude ETFs with hardly any volatility (money market, short-term bonds)
+ETF_MAX_CORR = 0.97              # almost identical ETFs (e.g. several S&P 500 ETFs): only the most liquid one
 ETF_EXCLUDE = r"LEV|SHORT|\bX2\b|\b2X|\b3X|INVERSE|DAILY|\bDLY|OVERNIGHT|MONEY MARK|\bCASH\b|0-1Y|SWAP RATE"
-BENCHMARK = {"aktien": "EXS1.DE", "etf": "EUNL.DE"}   # iShares Core DAX bzw. Core MSCI World
+BENCHMARK = {"aktien": "EXS1.DE", "etf": "EUNL.DE"}   # iShares Core DAX or Core MSCI World
 
-# --- Signale
+# --- Signals
 BREAKOUT_SHORT, BREAKOUT_LONG = 50, 200
 SMA_FAST, SMA_SLOW = 50, 200
-ALLOW_SHORT = True               # short nur bei Aktien (ETFs auf Xetra sind meist nicht leihbar)
-MOMENTUM_DAYS = 126              # Rangfolge, wenn mehr Signale als freie Plaetze: staerkster Trend zuerst
+ALLOW_SHORT = True               # short only for stocks (ETFs on Xetra can mostly not be borrowed)
+MOMENTUM_DAYS = 126              # ranking if there are more signals than free slots: strongest trend first
 
-# --- Ausstieg
+# --- Exit
 EXITS = {
     "Zeit kurz (aggressiv)": {"typ": "zeit", "tage": 20},
     "Zeit lang (konservativ)": {"typ": "zeit", "tage": 120},
@@ -109,64 +109,64 @@ EXITS = {
     "Preis aggressiv": {"typ": "preis", "stop": 0.05, "ziel": 0.10, "nachzug": 0.08},
     "Preis konservativ": {"typ": "preis", "stop": 0.15, "ziel": None, "nachzug": 0.25},
 }
-MAX_HOLD_DAYS = 250              # Obergrenze fuer alle Varianten
-ORDERS_IN_MARKET = True          # Preis-Varianten: Stop und Gewinnziel liegen als Order im Markt
-                                 #   Gewinnziel: Limit-Order, ausgefuehrt zum Zielkurs, sobald ein Schlusskurs
-                                 #   darueber liegt (der Kurs muss ihn im Tagesverlauf erreicht haben);
-                                 #   Stopps: am selben Tag zum Schlusskurs (vorsichtig, Kurs liegt schon darunter)
-                                 # False: alle Ausstiege erst zum Schlusskurs des Folgetages
+MAX_HOLD_DAYS = 250              # upper limit for all variants
+ORDERS_IN_MARKET = True          # price variants: stop and profit target are placed in the market as orders
+                                 #   profit target: limit order, executed at the target price as soon as a closing price
+                                 #   is above it (the price must have reached it during the day);
+                                 #   stops: on the same day at the closing price (cautious, the price is already below)
+                                 # False: all exits only at the closing price of the following day
 
-# --- Medienecho
+# --- Media echo
 GDELT_START = "20170101000000"
-GDELT_PAUSE = 6.0                # Mindestabstand zwischen zwei Abfragen (GDELT: hoechstens eine je 5 s);
-                                 #   nach einer Ablehnung (zu viele Abfragen) wird er automatisch verlaengert
+GDELT_PAUSE = 6.0                # minimum interval between two queries (GDELT: at most one per 5 s);
+                                 #   after a rejection (too many queries) it is extended automatically
 GDELT_PAUSE_MAX = 120.0
-GDELT_TIMEOUT = (15, 150)        # Sekunden: Verbindungsaufbau, Warten auf die Antwort
-GDELT_CHUNK_YEARS = 3            # dauert die Abfrage ueber alle Jahre zu lange: in 3-Jahres-Stuecken laden
-GDELT_MIN_ARTICLES_TONE = 30     # weniger Artikel insgesamt: Tonalitaet gar nicht erst abfragen (spart Zeit)
-GDELT_MAX_AGE_DAYS = 30          # Rueckrechnung: Medienecho erst nach 30 Tagen ergaenzen (fuer --heute: 12 Std.)
-GDELT_CONTEXT = "(Aktie OR Aktien OR Börse OR shares OR stock)"   # nur Artikel mit Boersenbezug
-MAX_SENTIMENT_STOCKS = 200       # Medienecho fuer die liquidesten N Aktien
-MIN_ARTICLES_7D = 3              # weniger Artikel in 7 Tagen: keine Stimmungsaussage
-TONE_Z_STRONG = 0.5              # "Echo + Stimmung": Stimmung deutlich besser als ueblich
-BUZZ_MIN = 1.5                   # "Echo + Stimmung": mindestens 1,5-mal so viele Artikel wie ueblich
-TONE_Z_VETO = -1.0               # "Veto": kein Kauf bei deutlich schlechterer Stimmung als ueblich
+GDELT_TIMEOUT = (15, 150)        # seconds: connection setup, waiting for the response
+GDELT_CHUNK_YEARS = 3            # if the query over all years takes too long: load in 3-year pieces
+GDELT_MIN_ARTICLES_TONE = 30     # fewer articles in total: do not query the tone at all (saves time)
+GDELT_MAX_AGE_DAYS = 30          # backtest: add media echo only after 30 days (for --heute: 12 hours)
+GDELT_CONTEXT = "(Aktie OR Aktien OR Börse OR shares OR stock)"   # only articles related to the stock market
+MAX_SENTIMENT_STOCKS = 200       # media echo for the N most liquid stocks
+MIN_ARTICLES_7D = 3              # fewer articles in 7 days: no statement on sentiment
+TONE_Z_STRONG = 0.5              # "Echo + Stimmung": sentiment clearly better than usual
+BUZZ_MIN = 1.5                   # "Echo + Stimmung": at least 1.5 times as many articles as usual
+TONE_Z_VETO = -1.0               # "Veto": no purchase if the sentiment is clearly worse than usual
 SENTIMENTS = ["ohne", "Stimmung positiv", "Echo + Stimmung", "Veto bei schlechter Stimmung"]
 
-# Pruefung der Stimmungsfilter (Trade-Vergleich immer, Placebo-Filter mit --placebo)
-PRUEF_TRADE_LAEUFE = 1000        # Zufallsvertauschungen fuer den p-Wert des Trade-Vergleichs
-PRUEF_PLACEBO_LAEUFE = 200       # Zufallsfilter je Stimmungsvariante (Portfolio-Rechnung, dauert)
-PRUEF_SCHICHT = "M"              # Zufall nur innerhalb desselben Monats ("M") bzw. Jahres ("Y"): "M" prueft, ob
-                                 # der Filter unter gleichzeitigen Signalen die besseren findet (strenger, weil
-                                 # Signale im selben Monat stark zusammenhaengen); "Y" laesst Markt-Timing mitzaehlen
-PRUEF_MIN_TRADES = 5             # je Gruppe (durchgelassen / geblockt) mindestens so viele Trades
+# testing of the sentiment filters (trade comparison always, placebo filters with --placebo)
+PRUEF_TRADE_LAEUFE = 1000        # random permutations for the p-value of the trade comparison
+PRUEF_PLACEBO_LAEUFE = 200       # random filters per sentiment variant (portfolio calculation, takes time)
+PRUEF_SCHICHT = "M"              # randomness only within the same month ("M") or year ("Y"): "M" tests whether
+                                 # the filter finds the better ones among simultaneous signals (stricter, because
+                                 # signals in the same month are strongly related); "Y" lets market timing count as well
+PRUEF_MIN_TRADES = 5             # at least this many trades per group (let through / blocked)
 PRUEF_SEED = 7
 
-# --- Konto und Kosten
+# --- Account and costs
 CAPITAL = 50_000.0
 MAX_POSITIONS = 10
-SLIPPAGE_BPS = 10                # halber Spread + Kursbewegung bis zur Ausfuehrung (unabhaengig vom Broker)
-BORROW_FEE = 0.01                # Leihgebuehr p. a. fuer Leerverkaeufe
+SLIPPAGE_BPS = 10                # half spread + price move until execution (independent of the broker)
+BORROW_FEE = 0.01                # borrowing fee p. a. for short sales
 
-# Broker: Scalable Capital fuer alle dort handelbaren Aktien, sonst Interactive Brokers.
-# Scalable bietet keine Leerverkaeufe von Aktien an - Short-Trades laufen immer ueber IBKR.
-BROKER = "scalable"              # "scalable" oder "ibkr" (dann alles zu IBKR-Gebuehren)
-SCALABLE_TARIF = "FREE"          # "FREE" (0 EUR im Monat) oder "PRIME+" (4,99 EUR im Monat)
-SCALABLE_HANDELSPLATZ = "Xetra"  # Kauf/Verkauf in der Schlussauktion gibt es nur auf Xetra (gettex und EIX haben
-                                 #   keine Auktion, sondern Kurse eines Market Makers)
-SCALABLE_GEBUEHR = {             # EUR je Order, Stand Oktober 2026 (justETF, Broker-Test.at, Presse August 2026) -
-    "FREE": {"Xetra": 1.99, "gettex": 1.99, "EIX": 0.99},     # bitte im Preis- und Leistungsverzeichnis pruefen
-    "PRIME+": {"Xetra": 1.99, "gettex": 1.99, "EIX": 0.00},   # PRIME+: EIX ab 250 EUR kostenlos, darunter 0,99 EUR
+# Broker: Scalable Capital for all stocks tradable there, otherwise Interactive Brokers.
+# Scalable does not offer short sales of stocks - short trades always go through IBKR.
+BROKER = "scalable"              # "scalable" or "ibkr" (then everything at IBKR fees)
+SCALABLE_TARIF = "FREE"          # "FREE" (0 EUR per month) or "PRIME+" (4.99 EUR per month)
+SCALABLE_HANDELSPLATZ = "Xetra"  # purchase/sale in the closing auction only exists on Xetra (gettex and EIX have
+                                 #   no auction, but prices of a market maker)
+SCALABLE_GEBUEHR = {             # EUR per order, as of October 2026 (justETF, Broker-Test.at, press August 2026) -
+    "FREE": {"Xetra": 1.99, "gettex": 1.99, "EIX": 0.99},     # please check in the list of prices and services
+    "PRIME+": {"Xetra": 1.99, "gettex": 1.99, "EIX": 0.00},   # PRIME+: EIX free of charge from 250 EUR, below that 0.99 EUR
 }
-SCALABLE_EIX_KLEINORDER = (250.0, 0.99)   # PRIME+ auf EIX: unter 250 EUR Ordervolumen 0,99 EUR
+SCALABLE_EIX_KLEINORDER = (250.0, 0.99)   # PRIME+ on EIX: below 250 EUR order volume 0.99 EUR
 SCALABLE_MONAT = {"FREE": 0.0, "PRIME+": 4.99}
-SCALABLE_NICHT_HANDELBAR = BASE_DIR / "scalable_nicht_handelbar.csv"   # Spalte "ticker": dort NICHT handelbare
-                                 #   Aktien (werden zu IBKR-Gebuehren gerechnet); fehlt die Datei: alle handelbar
-IBKR_PCT = 0.0005                # IBKR Fixed Europa: 0,05 % des Ordervolumens ...
-IBKR_MIN = 3.0                   # ... mindestens 3 EUR
-COMMISSION_PCT, COMMISSION_MIN = IBKR_PCT, IBKR_MIN   # alte Namen (fuer aeltere Skripte)
+SCALABLE_NICHT_HANDELBAR = BASE_DIR / "scalable_nicht_handelbar.csv"   # column "ticker": stocks NOT tradable
+                                 #   there (calculated at IBKR fees); if the file is missing: all tradable
+IBKR_PCT = 0.0005                # IBKR Fixed Europe: 0.05 % of the order volume ...
+IBKR_MIN = 3.0                   # ... at least 3 EUR
+COMMISSION_PCT, COMMISSION_MIN = IBKR_PCT, IBKR_MIN   # old names (for older scripts)
 
-# --- Pleitefaelle (nur mit --mit-pleiten). ISIN zur Suche nach Kursdaten - bitte beim Download pruefen.
+# --- Bankruptcy cases (only with --mit-pleiten). ISIN for searching price data - please check when downloading.
 PLEITEN_DIR = DATA_DIR / "pleiten"
 PLEITEN = {
     "WDI": ("Wirecard AG", "DE0007472060", "Insolvenzantrag 06/2020 nach Bilanzbetrug, Delisting Frankfurt 11/2021"),
@@ -177,21 +177,21 @@ PLEITEN = {
     "GGS": ("Gigaset AG", "DE0005156004", "Insolvenzantrag 09/2023"),
     "VAR1": ("Varta AG", "DE000A0TGJ55", "Kapitalschnitt auf null (StaRUG), rechtskraeftig 01/2025"),
 }
-PLEITEN_YAHOO = [".DE", ".F", ".SG", ".DU", ".BE", ".MU", ".HM"]   # Xetra und Regionalboersen
-PLEITEN_ANNAHME_LIQUIDE = True   # Datei ohne Umsatzangabe: als ausreichend liquide behandeln
-DELISTING_ERLOES = 1.0           # 1.0 = Verkauf zum letzten Kurs, 0.0 = Totalverlust offener Positionen
+PLEITEN_YAHOO = [".DE", ".F", ".SG", ".DU", ".BE", ".MU", ".HM"]   # Xetra and regional exchanges
+PLEITEN_ANNAHME_LIQUIDE = True   # file without turnover data: treat as sufficiently liquid
+DELISTING_ERLOES = 1.0           # 1.0 = sale at the last price, 0.0 = total loss of open positions
 
-# --- heutige Signale (--heute)
+# --- today's signals (--heute)
 LIVE = {"richtung": "long", "einstieg": "50-Tage-Hoch", "stimmung": "Stimmung positiv",
         "ausstieg": "Preis konservativ"}
-LIVE_HEADLINES = 3               # positivste und negativste Ueberschriften je Kandidat (7 Tage)
+LIVE_HEADLINES = 3               # most positive and most negative headlines per candidate (7 days)
 LIVE_MAX_CANDIDATES = 15
 
 ENTRIES = {"long": [f"{BREAKOUT_SHORT}-Tage-Hoch", f"{BREAKOUT_LONG}-Tage-Hoch", "Golden Cross"],
            "short": [f"{BREAKOUT_SHORT}-Tage-Tief", f"{BREAKOUT_LONG}-Tage-Tief", "Death Cross"]}
 
 
-# ======================================================================================= Hilfen
+# ======================================================================================= Helpers
 def log(msg: str) -> None:
     print(f"{time.strftime('%H:%M:%S')} {msg}", flush=True)
 
@@ -223,8 +223,8 @@ def not_at_scalable() -> set:
 
 
 def commission(value: float, ticker: str | None = None, short: bool = False, venue: str | None = None) -> float:
-    """Ordergebuehr in EUR: Scalable (pauschal je Order), wenn die Aktie dort handelbar ist und es kein
-    Leerverkauf ist; sonst IBKR (0,05 %, mindestens 3 EUR)."""
+    """Order fee in EUR: Scalable (flat per order) if the stock is tradable there and it is not a
+    short sale; otherwise IBKR (0.05 %, at least 3 EUR)."""
     if value <= 0:
         return 0.0
     if BROKER == "scalable" and not short and (ticker is None or ticker.upper() not in not_at_scalable()):
@@ -237,14 +237,14 @@ def commission(value: float, ticker: str | None = None, short: bool = False, ven
 
 
 def monthly_fee(cal: pd.DatetimeIndex, t: int, first: int) -> float:
-    """Kontofuehrung (Scalable PRIME+: 4,99 EUR) am ersten Handelstag jedes Monats."""
+    """Account fee (Scalable PRIME+: 4.99 EUR) on the first trading day of each month."""
     if BROKER != "scalable" or not SCALABLE_MONAT.get(SCALABLE_TARIF):
         return 0.0
     return SCALABLE_MONAT[SCALABLE_TARIF] if t == first or cal[t].month != cal[t - 1].month else 0.0
 
 
 def cost_pct(short: bool = False) -> float:
-    """Ordergebuehr in Prozent einer typischen Position (Konto / MAX_POSITIONS) - fuer Schaetzungen je Trade."""
+    """Order fee in percent of a typical position (account / MAX_POSITIONS) - for estimates per trade."""
     v = CAPITAL / MAX_POSITIONS
     return commission(v, short=short) / v
 
@@ -258,7 +258,7 @@ def broker_text() -> str:
             + "; Short und nicht handelbare Aktien: IBKR")
 
 
-# ======================================================================================= Daten
+# ======================================================================================= Data
 def xetra_names() -> pd.DataFrame:
     path = SCREENER_CACHE / XETRA_FILE
     raw = path.read_bytes()
@@ -278,7 +278,7 @@ def xetra_names() -> pd.DataFrame:
 
 
 def drop_running_day(close: pd.DataFrame) -> pd.DataFrame:
-    """Laufenden Xetra-Handelstag nicht verwenden (Yahoo liefert waehrend des Handels einen vorlaeufigen Kurs)."""
+    """Do not use the current Xetra trading day (Yahoo provides a preliminary price during trading)."""
     try:
         now = pd.Timestamp.now(tz="Europe/Berlin")
         today = now.normalize().tz_localize(None)
@@ -291,7 +291,7 @@ def drop_running_day(close: pd.DataFrame) -> pd.DataFrame:
 
 
 def load_market(kind: str, extra: bool = False) -> dict:
-    """Kurse, Umsaetze, Namen und Handelbarkeit fuer 'aktien' oder 'etf' (extra: mit Pleitefaellen)."""
+    """Prices, turnover, names and tradability for 'aktien' or 'etf' (extra: with bankruptcy cases)."""
     f = SCREENER_CACHE / (STOCK_FILE if kind == "aktien" else ETF_FILE)
     if not f.exists():
         raise SystemExit(f"Kurs-Cache fehlt: {f}\nBitte den Screener im Xetra-Modus laufen lassen "
@@ -299,7 +299,7 @@ def load_market(kind: str, extra: bool = False) -> dict:
     raw = pd.read_pickle(f)
     close = raw["close"].sort_index().astype(float)
     cnt = close.notna().sum(axis=1)
-    close = close[cnt >= 0.5 * cnt.rolling(21, center=True, min_periods=1).median()]   # Feiertage/Luecken
+    close = close[cnt >= 0.5 * cnt.rolling(21, center=True, min_periods=1).median()]   # holidays/gaps
     close = drop_running_day(close)
     volume = raw["volume"].reindex(index=close.index, columns=close.columns).astype(float)
     xn = xetra_names()
@@ -328,7 +328,7 @@ def load_market(kind: str, extra: bool = False) -> dict:
     turnover = (close * volume).rolling(250, min_periods=120).median().shift(1)
     for t in added:
         if PLEITEN_ANNAHME_LIQUIDE and volume[t].notna().sum() < 0.5 * close[t].notna().sum():
-            turnover[t] = MIN_TURNOVER_EUR                  # Umsatz unbekannt: als handelbar behandeln
+            turnover[t] = MIN_TURNOVER_EUR                  # turnover unknown: treat as tradable
     history = close.notna().cumsum() >= MIN_HISTORY
     elig = (turnover >= MIN_TURNOVER_EUR) & history & (close.shift(1) >= MIN_PRICE)
     if kind == "etf":
@@ -340,7 +340,7 @@ def load_market(kind: str, extra: bool = False) -> dict:
         r = np.log(close[cand]).diff().iloc[-750:]
         corr = r.corr(min_periods=120)
         kept = []
-        for t in med.index:                                 # liquidesten zuerst, Doppelgaenger auslassen
+        for t in med.index:                                 # most liquid first, skip duplicates
             if all(not (corr.at[t, k] >= ETF_MAX_CORR) for k in kept):
                 kept.append(t)
         drop = [t for t in cand if t not in kept]
@@ -363,7 +363,7 @@ def load_market(kind: str, extra: bool = False) -> dict:
 
 
 def parse_price_file(path: Path) -> pd.DataFrame:
-    """Kursdatei (eigener Export) lesen: Datum, Schlusskurs, optional Stueckzahl oder Umsatz in EUR."""
+    """Read a price file (own export): date, closing price, optionally number of shares or turnover in EUR."""
     raw = path.read_bytes()
     try:
         text = raw.decode("utf-8-sig")
@@ -386,7 +386,7 @@ def parse_price_file(path: Path) -> pd.DataFrame:
     def clean(col):
         return df[col].astype(str).str.strip().str.replace("\u00a0", "").str.replace(" ", "").str.replace("'", "")
 
-    def is_german(col):                                     # am Schlusskurs erkennen: 12,34 bzw. 1.234,56
+    def is_german(col):                                     # detect from the closing price: 12,34 or 1.234,56
         s = clean(col)
         return s.str.fullmatch(r"-?[\d.]*\d,\d+").mean() > s.str.fullmatch(r"-?[\d,]*\d\.\d+").mean()
 
@@ -416,7 +416,7 @@ def parse_price_file(path: Path) -> pd.DataFrame:
     if scol:
         out["volume"] = num(scol).to_numpy()
     elif ecol:
-        out["volume"] = (num(ecol) / num(ccol)).to_numpy()   # Umsatz in EUR -> Stueck
+        out["volume"] = (num(ecol) / num(ccol)).to_numpy()   # turnover in EUR -> shares
     elif vcol:
         out["volume"] = num(vcol).to_numpy()
     out = out[out.index.notna() & (out["close"] > 0)].sort_index()
@@ -424,7 +424,7 @@ def parse_price_file(path: Path) -> pd.DataFrame:
 
 
 def load_pleiten(cal: pd.DatetimeIndex) -> dict[str, tuple[pd.DataFrame, str]]:
-    """Kurse der Pleitefaelle: eigene Datei in daten/pleiten, sonst Yahoo (Xetra oder Regionalboerse)."""
+    """Prices of the bankruptcy cases: own file in daten/pleiten, otherwise Yahoo (Xetra or regional exchange)."""
     PLEITEN_DIR.mkdir(parents=True, exist_ok=True)
     out, missing = {}, []
     for key, (name, isin, event) in PLEITEN.items():
@@ -476,9 +476,9 @@ def load_pleiten(cal: pd.DatetimeIndex) -> dict[str, tuple[pd.DataFrame, str]]:
     return out
 
 
-# ======================================================================================= Signale
+# ======================================================================================= Signals
 def entry_events(close: pd.DataFrame) -> dict[tuple[str, str], pd.DataFrame]:
-    """Einstiegsereignisse am Schlusskurs (True nur am ersten Tag eines Ausbruchs bzw. beim Kreuzen)."""
+    """Entry events at the closing price (True only on the first day of a breakout or at the crossing)."""
     out = {}
     for n in (BREAKOUT_SHORT, BREAKOUT_LONG):
         hi = close.rolling(n, min_periods=n).max().shift(1)
@@ -496,9 +496,9 @@ def entry_events(close: pd.DataFrame) -> dict[tuple[str, str], pd.DataFrame]:
 
 
 def exit_index(p: np.ndarray, lo20: np.ndarray, hi20: np.ndarray, e: int, d: int, rule: dict) -> tuple:
-    """Ausstieg fuer einen Einstieg am Schlusskurs von Tag e (Richtung d = +1/-1): (Tag, Grund, Kurs).
-    Kurs = NaN heisst Schlusskurs des Ausstiegstages. Ein Signal am Schlusskurs von Tag t wird am Schlusskurs
-    t+1 ausgefuehrt; bei ORDERS_IN_MARKET werden Stopps und Gewinnziele schon am Tag t ausgefuehrt."""
+    """Exit for an entry at the closing price of day e (direction d = +1/-1): (day, reason, price).
+    Price = NaN means the closing price of the exit day. A signal at the closing price of day t is executed at the closing price
+    t+1; with ORDERS_IN_MARKET, stops and profit targets are already executed on day t."""
     n = len(p)
     cap = e + MAX_HOLD_DAYS
     if rule["typ"] == "zeit":
@@ -520,7 +520,7 @@ def exit_index(p: np.ndarray, lo20: np.ndarray, hi20: np.ndarray, e: int, d: int
         r = d * (seg / pe - 1)
         ext = np.maximum.accumulate(np.concatenate([[pe], seg]))[1:] if d > 0 else \
             np.minimum.accumulate(np.concatenate([[pe], seg]))[1:]
-        draw = d * (seg / ext - 1)                           # Abstand vom besten Kurs seit Einstieg (<= 0)
+        draw = d * (seg / ext - 1)                           # distance from the best price since entry (<= 0)
         cands = []
         h = np.flatnonzero(r <= -rule["stop"])
         if len(h):
@@ -549,7 +549,7 @@ def exit_index(p: np.ndarray, lo20: np.ndarray, hi20: np.ndarray, e: int, d: int
 
 
 def build_trades(m: dict, events: pd.DataFrame, direction: str, exit_name: str, start: pd.Timestamp) -> pd.DataFrame:
-    """Alle moeglichen Trades eines Einstiegssignals (Portfolio-Grenzen kommen erst in simulate)."""
+    """All possible trades of an entry signal (portfolio limits only come in simulate)."""
     close = m["close"]
     cal = close.index
     pf = close.ffill()
@@ -558,8 +558,8 @@ def build_trades(m: dict, events: pd.DataFrame, direction: str, exit_name: str, 
     hi20 = pf.rolling(EXITS[exit_name].get("tage", 20)).max().shift(1).to_numpy()
     mom = (pf / pf.shift(MOMENTUM_DAYS) - 1).to_numpy()
     has = close.notna().to_numpy()
-    last = len(cal) - 1 - has[::-1].argmax(axis=0)          # letzter Tag mit Kurs je Aktie
-    delisted = last < len(cal) - 11                         # Kursreihe endet vorzeitig -> Delisting
+    last = len(cal) - 1 - has[::-1].argmax(axis=0)          # last day with a price per stock
+    delisted = last < len(cal) - 11                         # price series ends prematurely -> delisting
     ev = (events & m["elig"]).to_numpy().copy()
     ev[cal < start] = False
     d = 1 if direction == "long" else -1
@@ -567,13 +567,13 @@ def build_trades(m: dict, events: pd.DataFrame, direction: str, exit_name: str, 
     rows = []
     ts, js = np.nonzero(ev)
     for t, j in zip(ts, js):
-        e = t + 1                                           # Ausfuehrung am naechsten Schlusskurs
+        e = t + 1                                           # execution at the next closing price
         if e > len(cal) - 1 or not np.isfinite(P[e, j]):
             continue
         if e > last[j]:
             continue
         x, why, px = exit_index(P[:, j], lo20[:, j], hi20[:, j], e, d, rule)
-        if delisted[j] and (x > last[j] or why == "offen"):          # bei Delisting noch offen
+        if delisted[j] and (x > last[j] or why == "offen"):          # still open at delisting
             x, why, px = int(last[j]), "Delisting", P[last[j], j] * DELISTING_ERLOES
         px_out = P[x, j] if np.isnan(px) else px
         rows.append((j, t, e, x, px, d * (px_out / P[e, j] - 1), x - e, why, d * mom[t, j]))
@@ -592,13 +592,13 @@ def simulate(m: dict, trades: pd.DataFrame, direction: str, start: pd.Timestamp,
     for r in trades.sort_values(["e", "rang"], ascending=[True, False]).itertuples(index=False):
         by_entry.setdefault(r.e, []).append(r)
     cash = CAPITAL
-    pos: dict[int, dict] = {}                               # Spalte j -> Position
+    pos: dict[int, dict] = {}                               # column j -> position
     equity = np.full(n, np.nan)
     log_rows = []
     for t in range(first, n):
         if d > 0:
-            cash -= monthly_fee(cal, t, first)              # z. B. Scalable PRIME+ 4,99 EUR/Monat
-        # 1. Ausstiege (Ausfuehrung am heutigen Schlusskurs)
+            cash -= monthly_fee(cal, t, first)              # e.g. Scalable PRIME+ 4.99 EUR/month
+        # 1. exits (execution at today's closing price)
         for j in [j for j, q in pos.items() if q["x"] == t]:
             q = pos.pop(j)
             px = P[t, j] if np.isnan(q["px_out"]) else q["px_out"]
@@ -612,10 +612,10 @@ def simulate(m: dict, trades: pd.DataFrame, direction: str, start: pd.Timestamp,
             log_rows.append({"ticker": m["close"].columns[j], "einstieg": cal[q["e"]].date(), "ausstieg": cal[t].date(),
                              "tage": t - q["e"], "grund": q["grund"], "einstand_eur": round(q["alloc"], 2),
                              "ergebnis_eur": round(pnl, 2), "rendite_pct": pnl / q["alloc"] * 100})
-        # 2. Wert des Kontos vor neuen Einstiegen
+        # 2. value of the account before new entries
         held = sum(q["alloc"] + d * q["shares"] * (P[t, j] - q["pe"]) for j, q in pos.items())
         eq_now = cash + held
-        # 3. Einstiege (Signal gestern, Ausfuehrung heute)
+        # 3. entries (signal yesterday, execution today)
         for r in by_entry.get(t, []):
             if len(pos) >= MAX_POSITIONS:
                 break
@@ -633,7 +633,7 @@ def simulate(m: dict, trades: pd.DataFrame, direction: str, start: pd.Timestamp,
             cash -= alloc + cost
             pos[j] = {"e": t, "x": int(r.x), "pe": P[t, j], "shares": shares, "alloc": alloc, "cost_in": cost,
                       "grund": r.grund, "borrow": 0.0, "px_out": r.kurs_aus}
-        # 4. Leihgebuehr fuer Leerverkaeufe
+        # 4. borrowing fee for short sales
         if d < 0 and pos:
             for j, q in pos.items():
                 fee = q["shares"] * P[t, j] * BORROW_FEE / 252
@@ -664,17 +664,17 @@ def metrics(eq: pd.Series, tl: pd.DataFrame, a: str, b: str | None) -> dict:
     return out
 
 
-# ======================================================================================= Medienecho (GDELT)
+# ======================================================================================= Media echo (GDELT)
 _pace = {"last": 0.0, "pause": GDELT_PAUSE}
 TIMEOUT = "timeout"
 
 
 def gdelt_get(params: dict):
-    """Eine Abfrage an die GDELT DOC 2.0 API (JSON). Rueckgabe: dict, None (Fehler) oder TIMEOUT.
+    """One query to the GDELT DOC 2.0 API (JSON). Returns: dict, None (error) or TIMEOUT.
 
-    GDELT lehnt Abfragen ab, die schneller als eine je 5 Sekunden kommen - auch wenn gleichzeitig ein
-    zweites Programm (oder ein zweiter Lauf dieses Skripts) vom selben Rechner abfragt. Nach einer Ablehnung
-    wird der Abstand verdoppelt und nach erfolgreichen Abfragen langsam wieder verkuerzt."""
+    GDELT rejects queries that come faster than one per 5 seconds - even if at the same time a
+    second program (or a second run of this script) queries from the same computer. After a rejection
+    the interval is doubled and after successful queries slowly shortened again."""
     import requests
     for attempt in range(7):
         wait = _pace["pause"] - (time.time() - _pace["last"])
@@ -683,9 +683,9 @@ def gdelt_get(params: dict):
         _pace["last"] = time.time()
         try:
             r = requests.get("https://api.gdeltproject.org/api/v2/doc/doc", params={**params, "format": "json"},
-                             timeout=GDELT_TIMEOUT, headers={"User-Agent": "trend_modell (privates Forschungsskript)"})
+                             timeout=GDELT_TIMEOUT, headers={"User-Agent": "trend_model (privates Forschungsskript)"})
         except requests.exceptions.ReadTimeout:
-            return TIMEOUT                                  # Aufrufer teilt den Zeitraum auf
+            return TIMEOUT                                  # caller splits the period
         except requests.exceptions.RequestException as e:
             log(f"  GDELT nicht erreichbar ({type(e).__name__}) - neuer Versuch in {20 * (attempt + 1)} s")
             time.sleep(20 * (attempt + 1))
@@ -713,8 +713,8 @@ def gdelt_get(params: dict):
 
 def fetch_timeline(query: str, mode: str, key: str, start: pd.Timestamp, end: pd.Timestamp,
                    first: bool = True) -> pd.DataFrame | None:
-    """Zeitreihe fuer [start, end]. Dauert die Antwort zu lange, wird der Zeitraum aufgeteilt
-    (erst in GDELT_CHUNK_YEARS-Jahres-Stuecke, dann halbiert, bis hinunter auf 3 Monate)."""
+    """Time series for [start, end]. If the response takes too long, the period is split
+    (first into GDELT_CHUNK_YEARS-year pieces, then halved, down to 3 months)."""
     js = gdelt_get({"query": query, "mode": mode, "startdatetime": start.strftime("%Y%m%d%H%M%S"),
                     "enddatetime": end.strftime("%Y%m%d%H%M%S")})
     if js is None:
@@ -756,7 +756,7 @@ def parse_timeline(js: dict | None, key: str) -> pd.DataFrame:
 
 
 def query_table(m: dict) -> pd.DataFrame:
-    """Suchbegriffe je Aktie. Die Datei suchbegriffe.csv kann bearbeitet werden (Spalte 'abfrage')."""
+    """Search terms per stock. The file suchbegriffe.csv can be edited (column 'abfrage')."""
     overrides = {"MUV2.DE": "Munich Re", "BMW.DE": "BMW", "MRK.DE": "Merck KGaA", "VOW3.DE": "Volkswagen",
                  "MBG.DE": "Mercedes-Benz", "DTE.DE": "Deutsche Telekom", "BAYN.DE": "Bayer AG",
                  "CON.DE": "Continental AG", "HEN3.DE": "Henkel", "P911.DE": "Porsche AG", "PAH3.DE": "Porsche SE",
@@ -787,10 +787,10 @@ def query_table(m: dict) -> pd.DataFrame:
 
 def load_gdelt(tickers: list[str], queries: pd.DataFrame, refresh: bool,
                max_age_days: float = GDELT_MAX_AGE_DAYS, offline: bool = False) -> dict:
-    """Taegliche Artikelzahl und Tonalitaet je Aktie (Cache je Aktie in daten/gdelt).
+    """Daily number of articles and tone per stock (cache per stock in daten/gdelt).
 
-    Jede fertige Aktie wird sofort gespeichert: Ein Abbruch (Strg+C, Zeitueberschreitung, Rechner aus)
-    verliert nichts, der naechste Lauf macht an derselben Stelle weiter."""
+    Each finished stock is saved immediately: An abort (Ctrl+C, timeout, computer off)
+    loses nothing, the next run continues at the same point."""
     GDELT_DIR.mkdir(parents=True, exist_ok=True)
     status_path = DATA_DIR / "gdelt_status.csv"
     status = pd.read_csv(status_path, sep=";", dtype=str, keep_default_na=False, encoding="utf-8-sig").set_index("ticker") \
@@ -799,7 +799,7 @@ def load_gdelt(tickers: list[str], queries: pd.DataFrame, refresh: bool,
         status["abfrage"] = ""
     status.index.name = "ticker"
 
-    def query_changed(t: str) -> bool:                      # Suchbegriff in suchbegriffe.csv geaendert?
+    def query_changed(t: str) -> bool:                      # search term in suchbegriffe.csv changed?
         q = queries.at[t, "abfrage"] if t in queries.index else ""
         return t in status.index and status.at[t, "abfrage"] not in ("", q)
 
@@ -817,7 +817,7 @@ def load_gdelt(tickers: list[str], queries: pd.DataFrame, refresh: bool,
         log(f"Suchbegriff geaendert - Medienecho wird neu geladen fuer: {', '.join(sorted(changed))}")
     if not todo:
         return out
-    if offline:                                             # --nur-cache: nichts herunterladen
+    if offline:                                             # --nur-cache: download nothing
         for t in todo:
             path = GDELT_DIR / f"{t}.csv"
             if path.exists():
@@ -858,7 +858,7 @@ def load_gdelt(tickers: list[str], queries: pd.DataFrame, refresh: bool,
                 if total >= GDELT_MIN_ARTICLES_TONE:
                     tone = fetch_timeline(q, "timelinetone", "tone", start, end)
                 else:
-                    tone = pd.DataFrame(columns=["tone"])   # zu wenige Artikel: keine Stimmungsaussage moeglich
+                    tone = pd.DataFrame(columns=["tone"])   # too few articles: no statement on sentiment possible
             if vol is None or tone is None:
                 failed.append(t)
                 status.loc[t] = ["Fehler (naechster Lauf versucht es erneut)", "", f"{time.time() - t0:.0f}",
@@ -894,13 +894,13 @@ def load_gdelt(tickers: list[str], queries: pd.DataFrame, refresh: bool,
 
 
 def sentiment_tickers(m: dict, start: pd.Timestamp) -> list[str]:
-    """Die liquidesten MAX_SENTIMENT_STOCKS Aktien (Median-Umsatz ab START) - in dieser Reihenfolge geladen."""
+    """The most liquid MAX_SENTIMENT_STOCKS stocks (median turnover from START) - loaded in this order."""
     top = m["turnover"].loc[m["turnover"].index >= start].median().sort_values(ascending=False)
     return top.index[:MAX_SENTIMENT_STOCKS].tolist()
 
 
 def check_recent(gd: dict, cal: pd.DatetimeIndex) -> None:
-    """Warnt, wenn GDELT fuer die letzten Tage kaum Artikel liefert (Verzoegerung bei GDELT)."""
+    """Warns if GDELT provides hardly any articles for the last days (delay at GDELT)."""
     last_days = []
     for df in gd.values():
         if df is not None and "artikel" in df and (df["artikel"] > 0).any():
@@ -913,8 +913,8 @@ def check_recent(gd: dict, cal: pd.DatetimeIndex) -> None:
 
 
 def sentiment_frames(gd: dict, cal: pd.DatetimeIndex, tickers: list[str]) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """stimmung_z und echo je Handelstag (nur Artikel bis zum Vortag: GDELT zaehlt nach Weltzeit-Tagen,
-    der Tagesbucket enthaelt auch Artikel nach Xetra-Schluss)."""
+    """stimmung_z and echo per trading day (only articles up to the previous day: GDELT counts by UTC days,
+    the daily bucket also contains articles after the Xetra close)."""
     tz, bz = {}, {}
     for t in tickers:
         df = gd.get(t)
@@ -923,12 +923,12 @@ def sentiment_frames(gd: dict, cal: pd.DatetimeIndex, tickers: list[str]) -> tup
         days = pd.date_range(df.index.min(), max(df.index.max(), cal[-1]), freq="D")
         df = df.reindex(days)
         if "tone" not in df or df["tone"].notna().sum() == 0:
-            continue                                        # zu wenige Artikel - keine Stimmungsaussage
+            continue                                        # too few articles - no statement on sentiment
         c = df["artikel"].fillna(0)
         tone = df["tone"].where(c > 0)
-        c, tone = c.shift(1), tone.shift(1)                 # nur Vortage
+        c, tone = c.shift(1), tone.shift(1)                 # previous days only
         c7 = c.rolling(7, min_periods=1).sum()
-        ct = c.where(tone.notna(), 0)                       # nur Tage, fuer die eine Tonalitaet vorliegt
+        ct = c.where(tone.notna(), 0)                       # only days for which a tone is available
         t7 = (ct * tone.fillna(0)).rolling(7, min_periods=1).sum() / ct.rolling(7, min_periods=1).sum()
         t7 = t7.where(c7 >= MIN_ARTICLES_7D)
         mu = t7.rolling(365, min_periods=120).mean()
@@ -953,7 +953,7 @@ def sentiment_mask(variant: str, direction: str, tone_z: pd.DataFrame, buzz: pd.
     raise ValueError(variant)
 
 
-# ======================================================================================= Rueckrechnung
+# ======================================================================================= Backtest
 def backtest(args, extra: bool = False, kinds: tuple = ("aktien", "etf")) -> tuple[pd.DataFrame, dict, list]:
     t0 = time.time()
     start = pd.Timestamp(START)
@@ -1049,7 +1049,7 @@ def backtest(args, extra: bool = False, kinds: tuple = ("aktien", "etf")) -> tup
 
 
 def compare_pleiten(res0: pd.DataFrame, res1: pd.DataFrame, trades1: dict, pleiten: list[str]) -> None:
-    """Vergleich ohne / mit Pleitefaellen und alle Trades in Pleite-Aktien."""
+    """Comparison without / with bankruptcy cases and all trades in bankrupt stocks."""
     keys = ["markt", "richtung", "einstieg", "stimmung", "ausstieg"]
     vals = [c for c in ["lern_rendite_pa_pct", "lern_sharpe", "lern_max_drawdown_pct", "test_rendite_pa_pct",
                         "test_sharpe", "test_max_drawdown_pct"] if c in res0.columns]
@@ -1094,7 +1094,7 @@ def compare_pleiten(res0: pd.DataFrame, res1: pd.DataFrame, trades1: dict, pleit
 
 
 def sentiment_effect(res: pd.DataFrame) -> pd.DataFrame:
-    """Sharpe Ratio jeder Stimmungsvariante minus 'ohne' bei gleichem Einstieg und Ausstieg."""
+    """Sharpe ratio of each sentiment variant minus 'ohne' with the same entry and exit."""
     r = res[(res["markt"] == "aktien") & res["stimmung"].isin(SENTIMENTS)]
     if r["stimmung"].nunique() < 2:
         return pd.DataFrame()
@@ -1111,10 +1111,10 @@ def sentiment_effect(res: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-# ======================================================================================= Pruefung der Stimmungsfilter
+# ======================================================================================= Testing of the sentiment filters
 def sentiment_available(variant: str, tone_z: pd.DataFrame, buzz: pd.DataFrame) -> pd.DataFrame:
-    """Wo der Filter auf echten Mediendaten beruht. Ohne Daten entscheidet allein das Fehlen: 'Stimmung positiv'
-    und 'Echo + Stimmung' blocken dann, 'Veto' laesst durch - das ist ein Universums-, kein Stimmungseffekt."""
+    """Where the filter is based on real media data. Without data, the absence alone decides: 'Stimmung positiv'
+    and 'Echo + Stimmung' then block, 'Veto' lets through - this is a universe effect, not a sentiment effect."""
     a = tone_z.notna()
     if variant == "Echo + Stimmung":
         a &= buzz.notna()
@@ -1126,8 +1126,8 @@ def _strata(cal: pd.DatetimeIndex) -> np.ndarray:
 
 
 def _signals(bases: dict, direction: str, entry: str, A: np.ndarray) -> np.ndarray:
-    """Alle Signale (Tag * Spalten + Aktie) eines Einstiegs mit Mediendaten - gemeinsam fuer alle Ausstiege,
-    damit ein Zufallsfilter in allen Ausstiegsvarianten dieselben Signale verwirft (wie der echte Filter)."""
+    """All signals (day * columns + stock) of an entry with media data - shared by all exits,
+    so that a random filter discards the same signals in all exit variants (like the real filter)."""
     J = A.shape[1]
     codes = [bases[(direction, entry, x)]["t_signal"].to_numpy() * J + bases[(direction, entry, x)]["j"].to_numpy()
              for x in EXITS if (direction, entry, x) in bases]
@@ -1136,8 +1136,8 @@ def _signals(bases: dict, direction: str, entry: str, A: np.ndarray) -> np.ndarr
 
 
 def _permuted(labels: np.ndarray, strata: np.ndarray, reps: int, rng) -> np.ndarray:
-    """Zeile 0: echte Filterentscheidungen; Zeilen 1..reps: dieselben Entscheidungen zufaellig auf die Signale
-    desselben Monats verteilt (gleich viele durchgelassen, aber ohne Bezug zur Stimmung)."""
+    """Row 0: real filter decisions; rows 1..reps: the same decisions randomly distributed over the signals
+    of the same month (the same number let through, but without any relation to the sentiment)."""
     n = len(labels)
     out = np.empty((reps + 1, n), dtype=bool)
     out[0] = labels
@@ -1148,7 +1148,7 @@ def _permuted(labels: np.ndarray, strata: np.ndarray, reps: int, rng) -> np.ndar
 
 
 def _lookup(b: pd.DataFrame, sig: np.ndarray, J: int) -> tuple[np.ndarray, np.ndarray]:
-    """Position jedes Trades in sig (nur Trades mit Mediendaten: ok=True)."""
+    """Position of each trade in sig (only trades with media data: ok=True)."""
     code = b["t_signal"].to_numpy().astype(np.int64) * J + b["j"].to_numpy()
     if not len(sig):
         return np.zeros(len(b), dtype=int), np.zeros(len(b), dtype=bool)
@@ -1158,11 +1158,11 @@ def _lookup(b: pd.DataFrame, sig: np.ndarray, J: int) -> tuple[np.ndarray, np.nd
 
 def check_trades(m: dict, bases: dict, tone_z: pd.DataFrame, buzz: pd.DataFrame,
                  reps: int = PRUEF_TRADE_LAEUFE) -> pd.DataFrame:
-    """Pruefung 1: Sind die Trades, die der Filter durchlaesst, besser als die, die er blockt?
+    """Test 1: Are the trades that the filter lets through better than those it blocks?
 
-    Nur Signale mit Mediendaten, alle moeglichen Trades (ohne Portfolio-Grenze), Rendite nach Kosten.
-    p-Wert: Anteil der Zufallsvertauschungen (innerhalb desselben Monats), die einen mindestens so grossen
-    Vorsprung erzeugen. Kleiner p-Wert (< 0,05) = Vorsprung kaum durch Zufall erklaerbar."""
+    Only signals with media data, all possible trades (without portfolio limit), return after costs.
+    p-value: share of the random permutations (within the same month) that produce a lead at least as
+    large. Small p-value (< 0.05) = lead can hardly be explained by chance."""
     cal = m["close"].index
     J = len(m["close"].columns)
     strata = _strata(cal)
@@ -1205,7 +1205,7 @@ def check_trades(m: dict, bases: dict, tone_z: pd.DataFrame, buzz: pd.DataFrame,
             for per, lst in per_var.items():
                 if not lst:
                     continue
-                D = np.mean(np.vstack([x[0] for x in lst]), axis=0)      # Mittel ueber die Varianten
+                D = np.mean(np.vstack([x[0] for x in lst]), axis=0)      # mean over the variants
                 real, null = D[0], D[1:]
                 rows.append({"stimmung": sv, "richtung": direction, "zeitraum": per, "varianten": len(lst),
                              "durchgelassen": np.mean([x[1] for x in lst]), "geblockt": np.mean([x[2] for x in lst]),
@@ -1227,13 +1227,13 @@ def _sharpe(eq: pd.Series, a: pd.Timestamp, b: pd.Timestamp | None) -> float:
 
 
 def check_placebo(m: dict, bases: dict, tone_z: pd.DataFrame, buzz: pd.DataFrame, reps: int) -> pd.DataFrame:
-    """Pruefung 2: Placebo-Filter im Portfolio.
+    """Test 2: placebo filters in the portfolio.
 
-    Der Zufallsfilter verwirft genauso viele Signale mit Mediendaten wie der echte (je Monat), behandelt Aktien
-    ohne Mediendaten genauso wie der echte und gilt fuer alle Ausstiegsvarianten gleich. Gemessen wird wie in
-    stimmung_effekt.csv die mittlere Sharpe-Differenz gegenueber 'ohne' ueber alle 15 Einstiegs-/Ausstiegs-
-    varianten. Zusaetzlich 'nur Medien-Aktien': alle Signale mit Mediendaten durchlassen, ohne Stimmung -
-    zeigt, wie viel der Wirkung allein aus der Beschraenkung auf die Aktien mit Mediendaten kommt."""
+    The random filter discards exactly as many signals with media data as the real one (per month), treats stocks
+    without media data exactly like the real one and applies equally to all exit variants. As in
+    stimmung_effekt.csv, the mean Sharpe difference relative to 'ohne' over all 15 entry/exit
+    variants is measured. Additionally 'nur Medien-Aktien': let all signals with media data through, without sentiment -
+    shows how much of the effect comes solely from the restriction to the stocks with media data."""
     cal = m["close"].index
     J = len(m["close"].columns)
     strata = _strata(cal)
@@ -1270,18 +1270,18 @@ def check_placebo(m: dict, bases: dict, tone_z: pd.DataFrame, buzz: pd.DataFrame
                 t, j = b["t_signal"].to_numpy(), b["j"].to_numpy()
                 pos, ok = _lookup(b, sig, J)
                 prep.append((b, M[t, j], ok, pos, L, ohne[(direction, entry, exit_name)]))
-        diffs = np.full((reps + 2, len(prep), 2), np.nan)    # Zeile 0 echt, 1 nur Medien-Aktien, 2.. Placebo
+        diffs = np.full((reps + 2, len(prep), 2), np.nan)    # row 0 real, 1 media stocks only, 2.. placebo
         for v, (b, lab0, ok, pos, L, base) in enumerate(prep):
             for k in range(reps + 2):
                 if k == 0:
                     lab = lab0
                 elif k == 1:
-                    lab = lab0 | ok                          # alle Signale mit Daten durch, ohne Daten wie echt
+                    lab = lab0 | ok                          # all signals with data through, without data as in the real one
                 else:
                     lab = lab0.copy()
                     lab[ok] = L[k - 1, pos[ok]]
                 diffs[k, v] = np.subtract(sharpes(b[lab], direction), base)
-        mean = np.nanmean(diffs, axis=1)                     # (reps+2, 2): Mittel ueber die 15 Varianten
+        mean = np.nanmean(diffs, axis=1)                     # (reps+2, 2): mean over the 15 variants
         for p, per in enumerate(periods):
             real, ref, null = mean[0, p], mean[1, p], mean[2:, p]
             null = null[np.isfinite(null)]
@@ -1320,7 +1320,7 @@ def report_checks(tc: pd.DataFrame, pc: pd.DataFrame | None) -> None:
 
 
 def pick_best(res: pd.DataFrame) -> pd.DataFrame:
-    """Beste Variante je Markt und Richtung nach der Sharpe Ratio im Lernzeitraum (nicht im Test!)."""
+    """Best variant per market and direction by the Sharpe ratio in the learning period (not in the test!)."""
     r = res[~res["einstieg"].str.startswith("Kaufen")]
     out = []
     for (kind, direction), g in r.groupby(["markt", "richtung"]):
@@ -1360,7 +1360,7 @@ def chart(res: pd.DataFrame, best: pd.DataFrame, curves: dict) -> None:
         ax.legend(fontsize=8)
     fig.tight_layout()
     OUT_DIR.mkdir(exist_ok=True)
-    fig.savefig(OUT_DIR / "trend_modell.png", dpi=110)
+    fig.savefig(OUT_DIR / "trend_model.png", dpi=110)
     plt.close(fig)
 
 
@@ -1397,7 +1397,7 @@ def report(res, best, effect, coverage, secs) -> None:
     print("Hinweis: Bei so vielen Varianten ist die beste im Lernzeitraum oft Zufall - entscheidend ist der Test.")
 
 
-# ======================================================================================= Heute
+# ======================================================================================= Today
 def today(args) -> None:
     m = load_market("aktien")
     cal = m["close"].index
@@ -1464,19 +1464,19 @@ def today(args) -> None:
 
 def main() -> None:
     global MAX_SENTIMENT_STOCKS, OUT_DIR
-    ap = argparse.ArgumentParser(description="Trendfolge-Modell Xetra mit Medienecho")
-    ap.add_argument("--heute", action="store_true", help="heutige Signale mit Medienecho und Ueberschriften")
-    ap.add_argument("--nur-kurse", action="store_true", help="ohne Medienecho (keine GDELT-Abfragen)")
-    ap.add_argument("--refresh", action="store_true", help="Medienecho vollstaendig neu laden")
-    ap.add_argument("--mit-pleiten", action="store_true", help="zusaetzlich mit Pleitefaellen rechnen und vergleichen")
+    ap = argparse.ArgumentParser(description="Trend-following model Xetra with media echo")
+    ap.add_argument("--heute", action="store_true", help="today's signals with media echo and headlines")
+    ap.add_argument("--nur-kurse", action="store_true", help="without media echo (no GDELT queries)")
+    ap.add_argument("--refresh", action="store_true", help="reload media echo completely")
+    ap.add_argument("--mit-pleiten", action="store_true", help="additionally calculate with bankruptcy cases and compare")
     ap.add_argument("--nur-medienecho", action="store_true",
-                    help="nur das Medienecho laden bzw. ergaenzen (abbrechbar, setzt beim naechsten Mal fort)")
-    ap.add_argument("--max-aktien", type=int, default=None, help=f"Medienecho nur fuer die N liquidesten Aktien "
-                                                                   f"(Standard {MAX_SENTIMENT_STOCKS})")
+                    help="load or add only the media echo (can be aborted, continues next time)")
+    ap.add_argument("--max-aktien", type=int, default=None, help=f"media echo only for the N most liquid stocks "
+                                                                   f"(default {MAX_SENTIMENT_STOCKS})")
     ap.add_argument("--nur-cache", action="store_true",
-                    help="Medienecho nur aus dem vorhandenen Cache verwenden, nichts von GDELT nachladen")
+                    help="use media echo only from the existing cache, do not load anything from GDELT")
     ap.add_argument("--placebo", type=int, nargs="?", const=PRUEF_PLACEBO_LAEUFE, default=0, metavar="N",
-                    help=f"zusaetzlich Placebo-Pruefung mit N Zufallsfiltern (Standard {PRUEF_PLACEBO_LAEUFE}; dauert)")
+                    help=f"additionally placebo test with N random filters (default {PRUEF_PLACEBO_LAEUFE}; takes time)")
     args = ap.parse_args()
     if args.max_aktien:
         MAX_SENTIMENT_STOCKS = args.max_aktien

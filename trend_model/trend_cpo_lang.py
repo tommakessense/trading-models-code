@@ -1,40 +1,40 @@
 """
-CPO-Test mit langer Kurshistorie, vorsichtiger Auswahl und CPO als laufendem Ausstiegssignal
+CPO test with a long price history, cautious selection and CPO as an ongoing exit signal
 ================================================================================================================
 
-Drei Fragen in einem Test (fuer Robust 1 und Robust 2 aus der Bewertung):
+Three questions in one test (for Robust 1 and Robust 2 from the evaluation):
 
-1. Lange Historie: Kurse ab 2000 statt ab 2016 -> Training und Test ueber viele Marktphasen (Dotcom-Crash,
-   Finanzkrise 2008, Euro-Krise 2011, 2015/16, 2018, Corona, 2022). Mit --download werden die Kurse aller
-   Aktien des Screener-Caches ab 2000 per yfinance geladen (einmalig), --lang rechnet damit.
-   Achtung: Es sind nur heute noch gehandelte Aktien (Survivorship Bias). Ueber 25 Jahre wiegt das schwerer
-   als ueber 9 Jahre - deshalb ist der faire Vergleich der gleichgewichtete Index derselben Aktien.
+1. Long history: prices from 2000 instead of from 2016 -> training and test over many market phases (dot-com crash,
+   financial crisis 2008, euro crisis 2011, 2015/16, 2018, Corona, 2022). With --download the prices of all
+   stocks in the screener cache from 2000 onwards are loaded via yfinance (once), --lang calculates with them.
+   Caution: These are only stocks that are still traded today (survivorship bias). Over 25 years this weighs more heavily
+   than over 9 years - therefore the fair comparison is the equal-weighted index of the same stocks.
 
-2. Vorsichtige Auswahl beim Kauf: statt der besten von 18 Ausstiegsregeln nur 3 Kandidaten; mehrere Modelle
-   (ENSEMBLE) liefern Mittelwert und Streuung der Vorhersage. Von der Standardregel wird nur abgewichen, wenn
-   die vorsichtige Schaetzung (Mittel - LAMBDA x Streuung) um mindestens MIN_VORTEIL_BP besser ist.
+2. Cautious selection at purchase: instead of the best of 18 exit rules, only 3 candidates; several models
+   (ENSEMBLE) provide the mean and dispersion of the prediction. The standard rule is only deviated from if
+   the cautious estimate (mean - LAMBDA x dispersion) is better by at least MIN_VORTEIL_BP.
 
-3. CPO als laufendes Ausstiegssignal: Fuer jede offene Position sagt ein Modell jeden Tag die Rendite der
-   naechsten HORIZONT Tage voraus (Merkmale der Aktie, des Markts und der Position: Tage gehalten, Gewinn seit
-   Kauf, Abstand vom Hoch seit Kauf). Verkauft wird (am naechsten Schlusskurs), sobald selbst die optimistische
-   Schaetzung (Mittel + LAMBDA_AUS x Streuung) unter SCHWELLE_BP liegt - also nur bei klarer Erwartung eines
-   Kursrueckgangs. Zwei Formen: als Fruehwarnung zusaetzlich zur Standardregel (Verkauf beim frueheren der
-   beiden Zeitpunkte) und als alleiniger Ausstieg (spaetestens nach MAX_HALTE Tagen).
-   Kontrolle: zufaellige Fruehwarnung mit gleicher Haeufigkeit.
+3. CPO as an ongoing exit signal: For each open position, a model predicts every day the return of the
+   next HORIZONT days (features of the stock, of the market and of the position: days held, profit since
+   purchase, distance from the high since purchase). The position is sold (at the next closing price) as soon as even the optimistic
+   estimate (mean + LAMBDA_AUS x dispersion) is below SCHWELLE_BP - i.e. only with a clear expectation of a
+   price decline. Two forms: as an early warning in addition to the standard rule (sale at the earlier of the
+   two points in time) and as the sole exit (at the latest after MAX_HALTE days).
+   Control: random early warning with the same frequency.
 
-Bewaehrungsprobe (Varianten "mit Bewaehrung im Depot"): CPO darf in einem Jahr nur eingreifen, wenn ein Depot
-mit seinen Entscheidungen in den Vorjahren - ausserhalb der Trainingsdaten - besser lief als das Depot mit der
-Standardregel (t-Wert der taeglichen Differenz > BEWAEHRUNG_T). Die Einigkeit mehrerer Modelle allein ist kein
-Vorsichtsmass: Sie lernen aus denselben Daten dieselben Fehler.
+Probation test (variants "mit Bewaehrung im Depot"): CPO may intervene in a year only if a portfolio
+with its decisions in the previous years - outside the training data - did better than the portfolio with the
+standard rule (t-value of the daily difference > BEWAEHRUNG_T). The agreement of several models alone is not
+a measure of caution: They learn the same mistakes from the same data.
 
-Walk-forward: Modelle fuer ein Signaljahr werden nur mit Trades/Tagen trainiert, die vor Jahresbeginn
-abgeschlossen waren; jede Position behaelt das Modell ihres Kaufjahres.
+Walk-forward: models for a signal year are trained only with trades/days that were closed
+before the start of the year; each position keeps the model of its purchase year.
 
-Aufruf (im Ordner trend_modell):
-    ..\\.venv\\python.exe trend_cpo_lang.py --download      Kurse ab 2000 laden (einmalig, ca. 10-20 Minuten)
-    ..\\.venv\\python.exe trend_cpo_lang.py --lang          Test mit langer Historie (Testjahre ab 2006)
-    ..\\.venv\\python.exe trend_cpo_lang.py                 derselbe Test mit dem bisherigen Cache (ab 2020)
-Ergebnisse in ergebnisse_cpo_lang/ bzw. ergebnisse_cpo_kurz/.
+Usage (in the folder trend_model):
+    ..\\.venv\\python.exe trend_cpo_lang.py --download      load prices from 2000 (once, approx. 10-20 minutes)
+    ..\\.venv\\python.exe trend_cpo_lang.py --lang          test with long history (test years from 2006)
+    ..\\.venv\\python.exe trend_cpo_lang.py                 the same test with the previous cache (from 2020)
+Results in ergebnisse_cpo_lang/ or ergebnisse_cpo_kurz/.
 """
 from __future__ import annotations
 
@@ -47,14 +47,14 @@ import numpy as np
 import pandas as pd
 
 import trend_cpo as tc
-import trend_modell as tm
+import trend_model as tm
 
-# ======================================================================================= Einstellungen
+# ======================================================================================= Settings
 LANG_FILE = "prices_aktien_lang.pkl"
 DOWNLOAD_START = "2000-01-01"
 DOWNLOAD_CHUNK = 40
 LANG_SIGNAL_START = "2001-06-01"
-LANG_ERSTES_TESTJAHR = 2006      # Training zuerst mit 2001-2005 (Dotcom-Crash und Erholung)
+LANG_ERSTES_TESTJAHR = 2006      # training first with 2001-2005 (dot-com crash and recovery)
 BENCH_TICKER = ["EXS1.DE", "^GDAXI"]
 
 STRATEGIEN = {
@@ -62,19 +62,19 @@ STRATEGIEN = {
     "Robust 2: Hoch 50 + Volumenschub | Zeit 60 + Stopp 15%": ("Hoch 50 + Volumenschub", "Zeit 60 + Stopp 15%"),
 }
 KANDIDATEN = ["Zeit 20", "Zeit 60 + Stopp 15%", "Zeit 120"]
-ENSEMBLE = 3                     # Modelle je Testjahr (je auf 70 % der Trainingszeilen)
+ENSEMBLE = 3                     # models per test year (each on 70 % of the training rows)
 ENSEMBLE_ANTEIL = 0.7
-LAMBDA = 1.0                     # vorsichtige Schaetzung = Mittel - LAMBDA x Streuung der Modelle
-MIN_VORTEIL_BP = 1.0             # ... muss die Standardregel um so viele Basispunkte je Tag schlagen
-BEWAEHRUNG_T = 1.0               # Bewaehrungsprobe: CPO darf in einem Jahr nur eingreifen, wenn sein Depot in den
-BEWAEHRUNG_MIN = 30              #   Vorjahren besser lief (t-Wert > 1, mindestens 30 Trades); sonst Standardregel
+LAMBDA = 1.0                     # cautious estimate = mean - LAMBDA x dispersion of the models
+MIN_VORTEIL_BP = 1.0             # ... must beat the standard rule by this many basis points per day
+BEWAEHRUNG_T = 1.0               # probation test: CPO may intervene in a year only if its portfolio did better in the
+BEWAEHRUNG_MIN = 30              #   previous years (t-value > 1, at least 30 trades); otherwise standard rule
 
-HORIZONT = 20                    # Ausstiegssignal: vorhergesagte Rendite der naechsten 20 Handelstage
-MIN_HALTE = 5                    # fruehestens nach 5 Tagen pruefen
-MAX_HALTE = 120                  # spaetestens nach 120 Tagen verkaufen
-SCHRITT_TRAINING = 5             # Trainingszeilen: jeder 5. Tag einer Position
-LAMBDA_AUS = 1.0                 # verkaufen, wenn Mittel + LAMBDA_AUS x Streuung < SCHWELLE_BP
-SCHWELLE_BP = 0.0                # Basispunkte je Tag
+HORIZONT = 20                    # exit signal: predicted return of the next 20 trading days
+MIN_HALTE = 5                    # check after 5 days at the earliest
+MAX_HALTE = 120                  # sell after 120 days at the latest
+SCHRITT_TRAINING = 5             # training rows: every 5th day of a position
+LAMBDA_AUS = 1.0                 # sell if mean + LAMBDA_AUS x dispersion < SCHWELLE_BP
+SCHWELLE_BP = 0.0                # basis points per day
 
 MAX_TRAIN = 250_000
 MODELL = dict(max_iter=200, learning_rate=0.05, max_leaf_nodes=31, min_samples_leaf=300, l2_regularization=1.0)
@@ -86,7 +86,7 @@ def log(msg: str) -> None:
     tm.log(msg)
 
 
-# ======================================================================================= Daten
+# ======================================================================================= Data
 def download_long() -> None:
     try:
         import yfinance as yf
@@ -161,7 +161,7 @@ def load(long: bool) -> dict:
         log("Handelbare Aktien je Jahr (Umsatz >= 1 Mio. EUR): " + ", ".join(f"{y}: {n}" for y, n in el.items()))
         log("Anteil der Kurstage mit Umsatzangabe je Jahr (%): "
             + ", ".join(f"{y}: {v:.0f}" for y, v in vol_ok.items()))
-        early = el.loc[(el.index > el.index.min()) & (el.index <= LANG_ERSTES_TESTJAHR)]   # erstes Jahr: kein Vorlauf
+        early = el.loc[(el.index > el.index.min()) & (el.index <= LANG_ERSTES_TESTJAHR)]   # first year: no lead time
         if len(early) and early.min() < 30:
             log("WARNUNG: In den ersten Jahren sind kaum Aktien handelbar (fehlende Umsaetze bei Yahoo?) - "
                 "die fruehen Jahre sind dann wenig aussagekraeftig.")
@@ -170,7 +170,7 @@ def load(long: bool) -> dict:
     return m
 
 
-# ======================================================================================= Modelle
+# ======================================================================================= Models
 def fit_ensemble(X: pd.DataFrame, y: np.ndarray, rng) -> list:
     from sklearn.ensemble import HistGradientBoostingRegressor
     idx = np.flatnonzero(np.isfinite(y))
@@ -202,7 +202,7 @@ def stack_cand(feat: pd.DataFrame, rows: np.ndarray) -> pd.DataFrame:
     return f
 
 
-# ======================================================================================= Teil 2: vorsichtige Wahl
+# ======================================================================================= Part 2: cautious choice
 def entry_choice(m: dict, meta: pd.DataFrame, feat: pd.DataFrame, default: str, rng) -> dict:
     cal = m["close"].index
     cand = [tc.EX_NAMES.index(x) for x in KANDIDATEN]
@@ -237,10 +237,10 @@ def entry_choice(m: dict, meta: pd.DataFrame, feat: pd.DataFrame, default: str, 
             "ic": pd.DataFrame(ic)}
 
 
-# ======================================================================================= Teil 3: Tagesausstieg
+# ======================================================================================= Part 3: daily exit
 def position_days(meta: pd.DataFrame, sig: np.ndarray, n: int, last: np.ndarray, step: int,
                   with_target: bool) -> tuple[np.ndarray, np.ndarray]:
-    """(Signal-Index, Tag) fuer alle Pruef-Tage der Positionen."""
+    """(signal index, day) for all check days of the positions."""
     E, J = meta["e"].to_numpy(), meta["j"].to_numpy()
     ii, dd = [], []
     for i in sig:
@@ -271,7 +271,7 @@ def daily_exit(m: dict, meta: pd.DataFrame, panels, rng) -> dict:
     has = m["close"].notna().to_numpy()
     last = n - 1 - has[::-1].argmax(axis=0)
     E, J = meta["e"].to_numpy(), meta["j"].to_numpy()
-    # hoechster Schluss seit Kauf: je Signal einmal berechnen
+    # highest close since purchase: calculate once per signal
     path_max = {}
 
     def runmax(ii, dd):
@@ -304,12 +304,12 @@ def daily_exit(m: dict, meta: pd.DataFrame, panels, rng) -> dict:
         mu, sd = predict(models, day_features(panels, meta, C, runmax, ii, dd))
         sell = (mu + LAMBDA_AUS * sd) < SCHWELLE_BP
         checked_days += len(ii)
-        # erster Verkaufstag je Signal
+        # first sale day per signal
         df = pd.DataFrame({"i": ii, "d": dd, "sell": sell})
         first = df[df["sell"]].groupby("i")["d"].min()
         exit_x[first.index.to_numpy()] = first.to_numpy() + 1
         exit_cpo[first.index.to_numpy()] = True
-        # Trefferguete: Vorhersage gegen spaetere Rendite (wo bekannt)
+        # hit quality: prediction against later return (where known)
         ok = (dd + 1 + HORIZONT <= np.minimum(last[J[ii]], n - 1))
         if ok.sum() > 100:
             real = C[dd[ok] + 1 + HORIZONT, J[ii[ok]]] / C[dd[ok] + 1, J[ii[ok]]] - 1
@@ -322,13 +322,13 @@ def daily_exit(m: dict, meta: pd.DataFrame, panels, rng) -> dict:
     return {"x": exit_x, "cpo": exit_cpo, "ic": pd.DataFrame(ic), "last": last}
 
 
-# ======================================================================================= Trades und Depot
+# ======================================================================================= Trades and portfolio
 def bewaehrung(m: dict, rows: np.ndarray, sig_year: np.ndarray, tr_std: pd.DataFrame, tr_alt: pd.DataFrame,
                test_start: pd.Timestamp) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Bewaehrungsprobe im Depot: Fuer jedes Jahr Y werden Standard- und CPO-Trades der Testjahre VOR Y im Depot
-    gerechnet (Kontostand nur bis Ende Y-1). CPO darf in Y nur eingreifen, wenn sein Depot taeglich im Mittel
-    besser war als das Standard-Depot mit t-Wert > BEWAEHRUNG_T. Ergebnis: Trades mit Eingriff nur in solchen
-    Jahren und eine Tabelle der Bewaehrung je Jahr."""
+    """Probation test in the portfolio: For each year Y, standard and CPO trades of the test years BEFORE Y are run in the portfolio
+    (account balance only up to the end of Y-1). CPO may intervene in Y only if its portfolio was on average daily
+    better than the standard portfolio with a t-value > BEWAEHRUNG_T. Result: trades with intervention only in such
+    years and a table of the probation per year."""
     cal = m["close"].index
     ys = sig_year[rows]
     out, rows_t = [], []
@@ -352,7 +352,7 @@ def bewaehrung(m: dict, rows: np.ndarray, sig_year: np.ndarray, tr_std: pd.DataF
 
 
 def trades_early(m, meta, rows, x_cpo, tr_std: pd.DataFrame) -> pd.DataFrame:
-    """Fruehwarnung: Verkauf beim frueheren Zeitpunkt - Standardregel oder CPO-Verkaufssignal."""
+    """Early warning: sale at the earlier point in time - standard rule or CPO sell signal."""
     C = m["close"].ffill().to_numpy()
     J, E = meta["j"].to_numpy()[rows], meta["e"].to_numpy()[rows]
     xs = tr_std["x"].to_numpy().copy()
@@ -373,7 +373,7 @@ def trades_fixed(meta, rows, k, rank) -> pd.DataFrame:
 
 
 def trades_daily(m, meta, rows, x_cpo, rank, stop: float | None, last) -> pd.DataFrame:
-    """Ausstieg am Tag x_cpo (CPO), sonst nach MAX_HALTE; optional zusaetzlicher Nachzugsstopp."""
+    """Exit on day x_cpo (CPO), otherwise after MAX_HALTE; optionally an additional trailing stop."""
     n = len(m["close"])
     C = m["close"].ffill().to_numpy()
     E, J = meta["e"].to_numpy(), meta["j"].to_numpy()
@@ -427,11 +427,11 @@ def yearly(eq: pd.Series) -> pd.Series:
     return (ye / ye.shift(1).fillna(e.iloc[0]) - 1) * 100
 
 
-# ======================================================================================= Ablauf
+# ======================================================================================= Procedure
 def main() -> None:
-    ap = argparse.ArgumentParser(description="CPO-Test: lange Historie, vorsichtige Wahl, Tagesausstieg")
-    ap.add_argument("--download", action="store_true", help="Kurse ab 2000 laden")
-    ap.add_argument("--lang", action="store_true", help="mit der langen Kurshistorie rechnen")
+    ap = argparse.ArgumentParser(description="CPO test: long history, cautious choice, daily exit")
+    ap.add_argument("--download", action="store_true", help="load prices from 2000")
+    ap.add_argument("--lang", action="store_true", help="calculate with the long price history")
     args = ap.parse_args()
     if args.download:
         download_long()
@@ -456,7 +456,7 @@ def main() -> None:
     rng = np.random.default_rng(SEED)
     rows_out, curves, ics, yearly_tab = [], {}, [], {}
 
-    # Vergleichsmassstab: gleichgewichteter Index derselben Aktien, DAX
+    # benchmark: equal-weighted index of the same stocks, DAX
     pf = m["close"].ffill()
     ew_r = pf.pct_change().where(m["elig"].shift(1, fill_value=False)).mean(axis=1).fillna(0)
     ew = tm.CAPITAL * (1 + ew_r[ew_r.index >= test_start]).cumprod()
@@ -518,7 +518,7 @@ def main() -> None:
             rows_out.append(r)
             curves[(sname, vn)] = eq
             yearly_tab[f"{sname[:8]} | {vn}"] = yearly(eq)
-        # Kontrolle: zufaellige Fruehwarnung mit gleicher Haeufigkeit
+        # control: random early warning with the same frequency
         n_cpo = (tr_early["grund"] == "CPO").sum()
         days = np.clip(tr_std["tage"].to_numpy() - MIN_HALTE, 0, None).sum()
         p_day = n_cpo / max(days, 1)

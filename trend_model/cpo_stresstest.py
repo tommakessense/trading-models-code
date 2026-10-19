@@ -1,31 +1,31 @@
 """
-Stresstest: CPO-Ausstieg gegen feste Ausstiege bei simulierten Crashs, Baerenmaerkten und unruhigen Maerkten
+Stress test: CPO exit against fixed exits in simulated crashes, bear markets and choppy markets
 ================================================================================================================
 
-Frage: Begrenzt der von CPO gewaehlte Ausstieg die Verluste besser als feste Regeln, wenn der Markt sich
-anders verhaelt als in den Trainingsdaten?
+Question: Does the exit chosen by CPO limit the losses better than fixed rules when the market behaves
+differently than in the training data?
 
-Vorgehen
-1. Die CPO-Modelle werden wie in trend_cpo.py jahresweise NUR mit echten Daten der Vorjahre trainiert
-   (Ergebnis wird in ergebnisse_cpo/modelle.pkl zwischengespeichert).
-2. Echte Signifikanz: Ist der Vorsprung des CPO-Ausstiegs in den echten Daten groesser als Zufall?
-   (Block-Bootstrap der taeglichen Renditen, gepaart gegen jede feste Variante.)
-3. Stressszenarien: In die echten Kurse wird ab mehreren Startdaten im Testzeitraum ein kuenstlicher Schock
-   eingebaut - als Marktbewegung, die jede Aktie mit ihrem Beta trifft, plus zufaelliges Rauschen:
-     Crash mit Erholung (V)       -35 % in 20 Tagen, danach +40 % in 60 Tagen
-     Baerenmarkt (L)              -45 % ueber 120 Tage, keine Erholung
-     Seitwaerts mit Fehlausbruechen  +-12 % Wellen alle 40 Tage ueber 160 Tage (Gift fuer Trendfolge)
-     Flash-Crash                  -15 % in 3 Tagen, Erholung in 7 Tagen
-     Grosse Streuung              Markt unveraendert, aber Einzelaktien laufen stark auseinander
-   Alle Signale, Merkmale und Ergebnisse werden auf den veraenderten Kursen neu berechnet; die Modelle
-   kennen die Szenarien nicht (wie im echten Leben).
-4. Verglichen werden alle Strategien mit demselben Einstieg (Hoch 200): feste Haltedauern, Trendbruch,
-   nachgezogener Stopp und die beiden CPO-Varianten - Drawdown, Rendite im Schockfenster, Sharpe Ratio.
+Procedure
+1. As in trend_cpo.py, the CPO models are trained year by year ONLY on real data of the previous years
+   (the result is cached in ergebnisse_cpo/modelle.pkl).
+2. Real significance: Is the lead of the CPO exit in the real data greater than chance?
+   (Block bootstrap of the daily returns, paired against each fixed variant.)
+3. Stress scenarios: An artificial shock is built into the real prices from several start dates in the test period
+   - as a market move that hits each stock with its beta, plus random noise:
+     Crash mit Erholung (V)       -35 % in 20 days, then +40 % in 60 days
+     Baerenmarkt (L)              -45 % over 120 days, no recovery
+     Seitwaerts mit Fehlausbruechen  +-12 % waves every 40 days over 160 days (poison for trend following)
+     Flash-Crash                  -15 % in 3 days, recovery in 7 days
+     Grosse Streuung              market unchanged, but individual stocks diverge strongly
+   All signals, features and results are recalculated on the modified prices; the models
+   do not know the scenarios (as in real life).
+4. All strategies with the same entry (Hoch 200) are compared: fixed holding periods, trend break,
+   trailing stop and the two CPO variants - drawdown, return in the shock window, Sharpe ratio.
 
-Aufruf (im Ordner trend_modell):  ..\\.venv\\python.exe cpo_stresstest.py      (nach trend_cpo.py: ca. 2 Minuten)
-                                  ..\\.venv\\python.exe cpo_stresstest.py --einstieg "Hoch 50 + Volumenschub"
-                                  ..\\.venv\\python.exe cpo_stresstest.py --neu   Modelle neu trainieren
-Ergebnisse in ergebnisse_cpo/: stress_einzeln.csv, stress_zusammenfassung.csv, signifikanz.csv, stress.png
+Usage (in the folder trend_model):  ..\\.venv\\python.exe cpo_stresstest.py      (after trend_cpo.py: approx. 2 minutes)
+                                    ..\\.venv\\python.exe cpo_stresstest.py --einstieg "Hoch 50 + Volumenschub"
+                                    ..\\.venv\\python.exe cpo_stresstest.py --neu   retrain the models
+Results in ergebnisse_cpo/: stress_einzeln.csv, stress_zusammenfassung.csv, signifikanz.csv, stress.png
 """
 from __future__ import annotations
 
@@ -37,27 +37,27 @@ import numpy as np
 import pandas as pd
 
 import trend_cpo as tc
-import trend_modell as tm
+import trend_model as tm
 
-# ======================================================================================= Einstellungen
-EINSTIEG = tc.BASIS[0]           # mit --einstieg aenderbar
+# ======================================================================================= Settings
+EINSTIEG = tc.BASIS[0]           # can be changed with --einstieg
 SUFFIX = ""
 FESTE = ["Zeit 20", "Zeit 40", "Zeit 120", "Trend 50", "Trend 20", "Nachzug 10%", "Nachzug 15%", "Nachzug 25%",
          "Zeit 40 + Stopp 10%", "Zeit 40 + Stopp 15%", "Zeit 60 + Stopp 10%", "Zeit 60 + Stopp 15%",
          "Zeit 120 + Stopp 10%", "Zeit 120 + Stopp 15%"]
 START_DATEN = ["2020-09-01", "2021-06-01", "2022-03-01", "2023-03-01", "2024-06-03", "2025-06-02"]
-NACHLAUF = 60                    # Schockfenster + 60 Handelstage werden gesondert ausgewertet
+NACHLAUF = 60                    # shock window + 60 trading days are evaluated separately
 BOOTSTRAP = 2000
-BLOCK = 20                       # Block-Laenge (Handelstage) fuer den Bootstrap
+BLOCK = 20                       # block length (trading days) for the bootstrap
 SEED = 5
 
 SZENARIEN = {
-    # Name: Liste von Phasen (Tage, gesamte Marktbewegung als Faktor, zusaetzliche Tagesschwankung des Markts)
+    # name: list of phases (days, total market move as a factor, additional daily volatility of the market)
     "Crash mit Erholung (V)": {"phasen": [(20, 0.65, 0.025), (60, 1.40, 0.015)]},
     "Baerenmarkt (L)": {"phasen": [(120, 0.55, 0.020)]},
-    "Seitwaerts mit Fehlausbruechen": {"welle": (160, 0.12, 40, 0.015)},   # Tage, Amplitude (log), Periode, Rauschen
+    "Seitwaerts mit Fehlausbruechen": {"welle": (160, 0.12, 40, 0.015)},   # days, amplitude (log), period, noise
     "Flash-Crash": {"phasen": [(3, 0.85, 0.03), (7, 1 / 0.85, 0.015)]},
-    "Grosse Streuung": {"streuung": (120, 2.0, 0.35)},   # Tage, Faktor auf Einzelbewegungen, Trendstreuung p. a.
+    "Grosse Streuung": {"streuung": (120, 2.0, 0.35)},   # days, factor on individual moves, trend dispersion p. a.
 }
 
 
@@ -65,7 +65,7 @@ def log(msg: str) -> None:
     tm.log(msg)
 
 
-# ======================================================================================= Modelle
+# ======================================================================================= Models
 def train_models(m: dict, refit: bool) -> dict:
     models = None if refit else tc.load_models()
     if models is not None:
@@ -83,7 +83,7 @@ def train_models(m: dict, refit: bool) -> dict:
     return models
 
 
-# ======================================================================================= Szenarien
+# ======================================================================================= Scenarios
 def market_parts(m: dict) -> tuple[pd.DataFrame, pd.Series, pd.Series, pd.DataFrame]:
     pf = m["close"].ffill()
     lr = np.log(pf).diff()
@@ -94,7 +94,7 @@ def market_parts(m: dict) -> tuple[pd.DataFrame, pd.Series, pd.Series, pd.DataFr
 
 
 def shock_path(spec: dict, rng) -> tuple[np.ndarray, float, float]:
-    """Taegliche Zusatz-Logrendite des Markts; Faktor auf Einzelbewegungen; Trendstreuung."""
+    """Daily additional log return of the market; factor on individual moves; trend dispersion."""
     if "phasen" in spec:
         parts = []
         for days, factor, noise in spec["phasen"]:
@@ -120,8 +120,8 @@ def apply_scenario(m: dict, parts, spec: dict, start: str, rng) -> tuple[dict, t
     add[t0:t1] = np.outer(s, beta.to_numpy())
     if mult != 1.0:
         add[t0:t1] += (mult - 1) * np.nan_to_num(resid.to_numpy()[t0:t1])
-    if spread > 0:                                      # jede Aktie bekommt im Fenster einen eigenen Trend
-        drift = rng.normal(0, spread, lr.shape[1]) / 252   # Streuung der Jahrestrends (z. B. 35 % p. a.)
+    if spread > 0:                                      # each stock gets its own trend in the window
+        drift = rng.normal(0, spread, lr.shape[1]) / 252   # dispersion of the annual trends (e.g. 35 % p. a.)
         add[t0:t1] += drift
     new_lr = np.nan_to_num(lr.to_numpy()) + add
     pf = c.ffill().to_numpy()
@@ -138,7 +138,7 @@ def apply_scenario(m: dict, parts, spec: dict, start: str, rng) -> tuple[dict, t
     return m2, (t0, t1)
 
 
-# ======================================================================================= Strategien
+# ======================================================================================= Strategies
 def run_strategies(m: dict, models: dict) -> dict[str, pd.Series]:
     cal = m["close"].index
     test_start = pd.Timestamp(f"{tc.ERSTES_TESTJAHR}-01-01")
@@ -189,10 +189,10 @@ def sharpe(eq: pd.Series) -> float:
     return float(r.mean() / r.std() * np.sqrt(252)) if r.std() > 0 else np.nan
 
 
-# ======================================================================================= Signifikanz
+# ======================================================================================= Significance
 def significance(curves: dict) -> pd.DataFrame:
-    """Gepaarter Block-Bootstrap: Sharpe(CPO) - Sharpe(feste Variante) bei zufaellig neu zusammengesetzten
-    Zeitabschnitten. Anteil der Ziehungen <= 0 = Wahrscheinlichkeit, dass der Vorsprung Zufall ist."""
+    """Paired block bootstrap: Sharpe(CPO) - Sharpe(fixed variant) with randomly reassembled
+    time segments. Share of draws <= 0 = probability that the lead is chance."""
     rng = np.random.default_rng(SEED)
     rets = pd.DataFrame({k: v.pct_change() for k, v in curves.items()}).dropna()
     n = len(rets)
@@ -216,11 +216,11 @@ def significance(curves: dict) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-# ======================================================================================= Ablauf
+# ======================================================================================= Procedure
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Stresstest CPO-Ausstieg gegen feste Ausstiege")
-    ap.add_argument("--neu", action="store_true", help="CPO-Modelle neu trainieren")
-    ap.add_argument("--einstieg", default=None, help=f"Einstieg statt '{tc.BASIS[0]}', z. B. \"Hoch 50 + Volumenschub\"")
+    ap = argparse.ArgumentParser(description="Stress test CPO exit against fixed exits")
+    ap.add_argument("--neu", action="store_true", help="retrain the CPO models")
+    ap.add_argument("--einstieg", default=None, help=f"entry instead of '{tc.BASIS[0]}', e.g. \"Hoch 50 + Volumenschub\"")
     args = ap.parse_args()
     global EINSTIEG, SUFFIX
     if args.einstieg:
@@ -269,7 +269,7 @@ def summarize(res: pd.DataFrame) -> pd.DataFrame:
     s = res[res["szenario"] != "Echte Kurse"]
     g = s.groupby(["szenario", "strategie"])[["maxdd_fenster_pct", "rendite_fenster_pct", "maxdd_gesamt_pct",
                                               "sharpe_gesamt"]].mean().reset_index()
-    # Wie oft hat CPO einen kleineren Drawdown im Schockfenster als die jeweils beste feste Variante?
+    # How often does CPO have a smaller drawdown in the shock window than the respective best fixed variant?
     wins = []
     for (sc, st), d in s.groupby(["szenario", "start"]):
         fixed = d[d["strategie"].str.startswith("Fest")]

@@ -1,21 +1,21 @@
 """
-Bewertung der Trendfolge-Varianten: Sieger, Plausibilitaet, Gewinnquellen, Zufallswahrscheinlichkeit
+Evaluation of the trend-following variants: winner, plausibility, sources of profit, probability of chance
 ================================================================================================================
 
-Voraussetzung: trend_cpo.py wurde gerechnet (ergebnisse_cpo/raster_kurven.pkl = Kontoverlauf aller festen
-Kombinationen aus Einstieg und Ausstieg).
+Prerequisite: trend_cpo.py has been run (ergebnisse_cpo/raster_kurven.pkl = equity curve of all fixed
+combinations of entry and exit).
 
-1. Sieger    : beste Sharpe Ratio und hoechste Rendite ueber den ganzen Zeitraum; dazu die Variante, die man
-               Ende 2022 nur mit den Daten bis dahin gewaehlt haette, und wie sie danach lief (out-of-sample).
-2. Marktlage : DAX und gleichgewichteter Index aller handelbaren Aktien je Jahr, Marktbreite, Zahl der Signale.
-3. Gewinne   : Trefferquote, Gewinn-/Verlust-Verhaeltnis, Anteil der besten Trades und Aktien am Gewinn,
-               Ergebnis ohne die besten Aktien, Markt-Beta und Alpha.
-4. Zufall    : Probabilistic Sharpe Ratio (PSR), Deflated Sharpe Ratio (DSR, beruecksichtigt die Zahl der
-               getesteten Varianten), Bootstrap-Reality-Check (White) fuer die beste von allen Varianten,
-               jeweils absolut und gegenueber dem gleichgewichteten Aktienindex.
+1. Winner    : best Sharpe ratio and highest return over the whole period; in addition the variant that one
+               would have chosen at the end of 2022 with only the data up to then, and how it did afterwards (out-of-sample).
+2. Market    : DAX and equal-weighted index of all tradable stocks per year, market breadth, number of signals.
+3. Profits   : hit rate, win/loss ratio, share of the best trades and stocks in the profit,
+               result without the best stocks, market beta and alpha.
+4. Chance    : Probabilistic Sharpe Ratio (PSR), Deflated Sharpe Ratio (DSR, takes into account the number of
+               tested variants), bootstrap reality check (White) for the best of all variants,
+               each in absolute terms and relative to the equal-weighted stock index.
 
-Aufruf (im Ordner trend_modell):  ..\\.venv\\python.exe trend_bewertung.py
-Ergebnisse in ergebnisse_cpo/: bewertung_*.csv, bewertung.png
+Usage (in the folder trend_model):  ..\\.venv\\python.exe trend_bewertung.py
+Results in ergebnisse_cpo/: bewertung_*.csv, bewertung.png
 """
 from __future__ import annotations
 
@@ -27,22 +27,22 @@ import pandas as pd
 from scipy.stats import norm
 
 import trend_cpo as tc
-import trend_modell as tm
+import trend_model as tm
 
 LERN = (pd.Timestamp(tc.SIGNAL_START), pd.Timestamp("2022-12-31"))
 TEST = (pd.Timestamp("2023-01-01"), None)
 BOOTSTRAP = 2000
-BLOCK = 20                       # mittlere Blocklaenge (Handelstage) im stationaeren Bootstrap
+BLOCK = 20                       # mean block length (trading days) in the stationary bootstrap
 SEED = 3
-START_DATEN = pd.date_range("2017-10-01", "2023-10-01", freq="6MS")   # Startzeitpunkte fuer die Robustheit
-GAMMA = 0.5772156649             # Euler-Mascheroni-Konstante (Erwartungswert des Maximums)
+START_DATEN = pd.date_range("2017-10-01", "2023-10-01", freq="6MS")   # start dates for the robustness
+GAMMA = 0.5772156649             # Euler-Mascheroni constant (expected value of the maximum)
 
 
 def log(msg: str) -> None:
     tm.log(msg)
 
 
-# ======================================================================================= Kennzahlen
+# ======================================================================================= Metrics
 def cut(s: pd.Series, per: tuple) -> pd.Series:
     a, b = per
     s = s.dropna()
@@ -70,19 +70,19 @@ def stats(eq: pd.Series, per: tuple, bench_r: pd.Series | None = None) -> dict:
 
 
 def psr(r: np.ndarray, sr_star: float = 0.0) -> tuple[float, float, float]:
-    """Probabilistic Sharpe Ratio (Bailey/Lopez de Prado 2012), alles in Tageseinheiten.
-    Gibt (Sharpe taeglich, Standardfehler, Wahrscheinlichkeit wahre Sharpe > sr_star) zurueck."""
+    """Probabilistic Sharpe Ratio (Bailey/Lopez de Prado 2012), everything in daily units.
+    Returns (daily Sharpe, standard error, probability that the true Sharpe > sr_star)."""
     r = r[np.isfinite(r)]
     n = len(r)
     sr = r.mean() / r.std(ddof=1)
     g3 = pd.Series(r).skew()
-    g4 = pd.Series(r).kurt() + 3                            # nicht ueberschuessige Kurtosis
+    g4 = pd.Series(r).kurt() + 3                            # not excess kurtosis
     se = np.sqrt((1 - g3 * sr + (g4 - 1) / 4 * sr ** 2) / (n - 1))
     return sr, se, float(norm.cdf((sr - sr_star) / se))
 
 
 def effective_n(R: np.ndarray) -> float:
-    """Effektive Zahl unabhaengiger Varianten (Participation Ratio der Eigenwerte der Korrelationsmatrix)."""
+    """Effective number of independent variants (participation ratio of the eigenvalues of the correlation matrix)."""
     c = np.corrcoef(R, rowvar=False)
     c = np.nan_to_num(c)
     ev = np.clip(np.linalg.eigvalsh(c), 0, None)
@@ -90,23 +90,23 @@ def effective_n(R: np.ndarray) -> float:
 
 
 def expected_max_sr(var_sr: float, n: float) -> float:
-    """Erwartete hoechste Sharpe Ratio (taeglich) von n unabhaengigen Varianten OHNE echten Vorteil."""
+    """Expected highest Sharpe ratio (daily) of n independent variants WITHOUT a real edge."""
     n = max(n, 2)
     return np.sqrt(var_sr) * ((1 - GAMMA) * norm.ppf(1 - 1 / n) + GAMMA * norm.ppf(1 - 1 / (n * EULER_E)))
 
 
 def reality_check(R: np.ndarray, rng) -> tuple[float, np.ndarray]:
-    """White's Reality Check: Wie oft erreicht die BESTE von allen Varianten im Zufall (alle Mittelwerte auf
-    null gesetzt, Tage blockweise neu gezogen) eine so hohe Sharpe Ratio wie die beste echte?"""
+    """White's Reality Check: How often does the BEST of all variants reach by chance (all means set to
+    zero, days redrawn in blocks) a Sharpe ratio as high as the best real one?"""
     n, k = R.shape
     sd = R.std(axis=0, ddof=1)
     real = (R.mean(axis=0) / sd).max()
-    Z = R - R.mean(axis=0)                                  # Nullhypothese: kein Vorteil
+    Z = R - R.mean(axis=0)                                  # null hypothesis: no edge
     mx = np.empty(BOOTSTRAP)
     ar = np.arange(n)
-    for b0 in range(0, BOOTSTRAP, 100):                    # stationaerer Bootstrap (Politis/Romano), je 100
+    for b0 in range(0, BOOTSTRAP, 100):                    # stationary bootstrap (Politis/Romano), 100 each
         B = min(100, BOOTSTRAP - b0)
-        new = rng.random((B, n)) < 1 / BLOCK                # neuer Block beginnt mit Wahrscheinlichkeit 1/BLOCK
+        new = rng.random((B, n)) < 1 / BLOCK                # a new block starts with probability 1/BLOCK
         new[:, 0] = True
         blk = np.cumsum(new, axis=1) - 1
         last = np.maximum.accumulate(np.where(new, ar, 0), axis=1)
@@ -118,7 +118,7 @@ def reality_check(R: np.ndarray, rng) -> tuple[float, np.ndarray]:
     return float((mx >= real).mean()), mx
 
 
-# ======================================================================================= Trades des Siegers
+# ======================================================================================= Trades of the winner
 def winner_trades(m: dict, entry: str, exit_name: str, exclude: list[str] | None = None) -> dict:
     cal = m["close"].index
     sigs = tc.entry_signals(m, [entry])
@@ -136,7 +136,7 @@ def winner_trades(m: dict, entry: str, exit_name: str, exclude: list[str] | None
     tl = sim["trades"]
     if not tl.empty:
         tl["name"] = tl["ticker"].map(m["names"])
-        # Grund: Stopp vor Ablauf der Haltedauer oder regulaer
+        # reason: stop before the end of the holding period or regular
         tl["art"] = np.where(tl["tage"] < tc.AUSSTIEGE[exit_name].get("tage", 10 ** 6), "Stopp/Trendbruch", "Zeitablauf")
     return {"equity": sim["equity"], "trades": tl, "signale": len(rows)}
 
@@ -158,8 +158,8 @@ def trade_profile(tl: pd.DataFrame) -> dict:
 
 
 def start_robustness(m: dict) -> pd.DataFrame:
-    """Jede Kombination ab mehreren Startzeitpunkten rechnen (jeweils bis heute): Mit nur 10 Plaetzen und langen
-    Haltedauern haengt das Ergebnis stark davon ab, welche Aktien zufaellig zu Beginn im Depot landen."""
+    """Run each combination from several start dates (each up to today): With only 10 slots and long
+    holding periods, the result depends heavily on which stocks happen to land in the portfolio at the start."""
     cal = m["close"].index
     P = m["close"].ffill().to_numpy()
     mom = P / np.vstack([np.full((126, P.shape[1]), np.nan), P[:-126]]) - 1
@@ -186,7 +186,7 @@ def start_robustness(m: dict) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-# ======================================================================================= Ablauf
+# ======================================================================================= Procedure
 def main() -> None:
     tm.OUT_DIR = tc.OUT_DIR
     path = tc.OUT_DIR / "raster_kurven.pkl"
@@ -198,8 +198,8 @@ def main() -> None:
     start = pd.Timestamp(tc.SIGNAL_START)
     curves = curves[curves.index >= start]
 
-    # Vergleichsmassstaebe: DAX-ETF und gleichgewichteter Index aller handelbaren Aktien (gleicher
-    # Survivorship Bias wie die Strategien - der faire Vergleich)
+    # Benchmarks: DAX ETF and equal-weighted index of all tradable stocks (same
+    # survivorship bias as the strategies - the fair comparison)
     pf = m["close"].ffill()
     ew_r = pf.pct_change().where(m["elig"].shift(1, fill_value=False)).mean(axis=1).fillna(0)
     ew = tm.CAPITAL * (1 + ew_r[ew_r.index >= start]).cumprod()
@@ -209,7 +209,7 @@ def main() -> None:
         bench[f"DAX ({tm.BENCHMARK['aktien']})"] = tm.CAPITAL * b / b.iloc[0]
     ew_ret = ew.pct_change()
 
-    # ---------------- 1. Kennzahlen aller Kombinationen
+    # ---------------- 1. Metrics of all combinations
     rows = []
     for col in curves.columns:
         en, ex = col.split(" | ")
@@ -237,7 +237,7 @@ def main() -> None:
     rank_test = int((strat["test_sharpe"] > best_lern["test_sharpe"]).sum()) + 1
     key = lambda r: f"{r['einstieg']} | {r['ausstieg']}"
 
-    # ---------------- 2. Marktlage je Jahr
+    # ---------------- 2. Market conditions per year
     sma200 = pf.rolling(200).mean()
     breadth = (pf > sma200).astype(float).where(m["elig"] & sma200.notna()).mean(axis=1)
     hi200 = (pf > pf.rolling(200).max().shift(1)).astype(float).where(m["elig"]).sum(axis=1)
@@ -256,7 +256,7 @@ def main() -> None:
     regime = regime[regime.index >= start.year]
     tm.save_csv(regime.round(1), "bewertung_marktlage.csv", index=True)
 
-    # ---------------- 3. Gewinnquellen des Siegers (beste Sharpe) und der hoechsten Rendite
+    # ---------------- 3. Sources of profit of the winner (best Sharpe) and of the highest return
     profiles, tops, robust = {}, {}, []
     rob_top = robs.sort_values("sharpe_mittel", ascending=False).head(2)
     cands = [("Beste Sharpe", best_sh), ("Hoechste Rendite", best_ret)] + \
@@ -287,7 +287,7 @@ def main() -> None:
     rob = pd.DataFrame(robust)
     tm.save_csv(rob, "bewertung_ohne_beste_aktien.csv")
 
-    # ---------------- 4. Zufallswahrscheinlichkeit
+    # ---------------- 4. Probability of chance
     R_abs = curves.pct_change().iloc[1:].fillna(0)
     R_exc = R_abs.sub(ew_ret.reindex(R_abs.index).fillna(0), axis=0)
     n_eff = {"absolut": effective_n(R_abs.to_numpy()), "ueber Index": effective_n(R_exc.to_numpy())}
@@ -315,7 +315,7 @@ def main() -> None:
                               "erwartete_max_sharpe_zufall_pa": sr0 * np.sqrt(252),
                               "erwartete_max_sharpe_zufall_eff_pa": sr0_eff * np.sqrt(252),
                               "dsr_alle": d_all, "dsr_effektiv": d_eff, "reality_check_p": p_rc})
-        # out-of-sample: Ende 2022 gewaehlt, nur Testzeitraum (keine Auswahl im Test -> keine Deflation noetig)
+        # out-of-sample: chosen at the end of 2022, test period only (no selection in the test -> no deflation needed)
         rt = cut(R[key(best_lern)], TEST).to_numpy()
         sr, se, p0 = psr(rt, 0.0)
         stat_rows.append({"variante": f"Ende 2022 gewaehlt: {key(best_lern)}", "massstab": lbl, "zeitraum": "test",

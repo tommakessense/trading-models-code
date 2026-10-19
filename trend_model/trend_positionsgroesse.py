@@ -1,25 +1,25 @@
 """
-Positionsgroesse im Trendmodell: feste 1/10 oder je nach Signalqualitaet (CPO und einfache Regeln)?
+Position size in the trend model: fixed 1/10 or depending on signal quality (CPO and simple rules)?
 ================================================================================================================
 
-Gleiche Aktienauswahl wie bisher (Signal, Rangfolge nach 6-Monats-Momentum), nur die Groesse je Kauf aendert sich:
-    Gewicht w zwischen GEWICHT_MIN und GEWICHT_MAX des Depotwerts (Standard 1/10)
-    Regel fuer Kaeufe ueber 1/10: Der Mehrbetrag kommt nur aus freiem Geld - nach dem Kauf muessen noch
-    RESERVE (1/10) des Depotwerts als Bargeld uebrig sein, damit das naechste normale Signal gekauft werden kann.
-    Reicht das Geld nicht, wird weniger (mindestens das Standardgewicht, soweit vorhanden) gekauft.
+Same stock selection as before (signal, ranking by 6-month momentum), only the size per purchase changes:
+    Weight w between GEWICHT_MIN and GEWICHT_MAX of the portfolio value (default 1/10)
+    Rule for purchases above 1/10: The extra amount comes only from free cash - after the purchase,
+    RESERVE (1/10) of the portfolio value must still be left as cash, so that the next normal signal can be bought.
+    If the cash is not sufficient, less is bought (at least the default weight, as far as available).
 
-Groessenregeln (Bewertung jedes Signals nur mit Daten bis zum Signaltag):
-    fest 1/10            wie bisher
-    CPO[je Tag]          Vorhersage des CPO-Modells (trend_cpo.py, Walk-forward, je Jahr nur mit Vorjahren trainiert)
-    CPO[relativ]         dito, Ziel relativ zu gleichzeitigen Signalen
-    Momentum-Staerke     staerkerer 6-Monats-Trend -> groessere Position
-    Schwankung           ruhigere Aktie -> groessere Position (gleiches Risiko je Position, "inverse Volatilitaet")
-    Zufall               gleiche Verteilung der Gewichte wie die Stufenregeln, aber zufaellig (Kontrolle)
-Stufen: Bewertung im obersten Fuenftel der letzten 250 Handelstage -> GEWICHT_MAX, im untersten -> GEWICHT_MIN,
-sonst 1/10.
+Sizing rules (each signal is rated only with data up to the signal day):
+    fest 1/10            as before
+    CPO[je Tag]          prediction of the CPO model (trend_cpo.py, walk-forward, trained per year only on prior years)
+    CPO[relativ]         ditto, target relative to simultaneous signals
+    Momentum-Staerke     stronger 6-month trend -> larger position
+    Schwankung           calmer stock -> larger position (same risk per position, "inverse volatility")
+    Zufall               same distribution of weights as the tier rules, but random (control)
+Tiers: rating in the top fifth of the last 250 trading days -> GEWICHT_MAX, in the bottom fifth -> GEWICHT_MIN,
+otherwise 1/10.
 
-Aufruf (im Ordner trend_modell, nach trend_cpo.py):  ..\\.venv\\python.exe trend_positionsgroesse.py
-Ergebnisse in ergebnisse_cpo/: positionsgroesse.csv, positionsgroesse.png
+Usage (in the folder trend_model, after trend_cpo.py):  ..\\.venv\\python.exe trend_positionsgroesse.py
+Results in ergebnisse_cpo/: positionsgroesse.csv, positionsgroesse.png
 """
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ import numpy as np
 import pandas as pd
 
 import trend_cpo as tc
-import trend_modell as tm
+import trend_model as tm
 
 STRATEGIEN = {
     "Robust 1: Hoch 200 | Zeit 20": ("Hoch 200", "Zeit 20"),
@@ -38,11 +38,11 @@ STRATEGIEN = {
 GEWICHT_STANDARD = 0.10
 GEWICHT_MIN = 0.05
 GEWICHT_MAX = 0.20
-RESERVE = 0.10                   # nach einem Kauf ueber Standardgewicht muss so viel Bargeld uebrig sein
-OBEN, UNTEN = 0.8, 0.2           # Fuenftel fuer die Stufen
-HISTORIE = 250                   # Vergleich mit den Bewertungen der Signale der letzten 250 Handelstage
-MAX_POSITIONEN = 20              # Obergrenze der Anzahl (bei kleinen Positionen passen mehr als 10 hinein)
-MIN_KAUF = 0.05                  # kein Kauf unter 5 % des Depotwerts (sonst entstehen Mini-Positionen aus Restgeld)
+RESERVE = 0.10                   # after a purchase above the default weight, this much cash must be left
+OBEN, UNTEN = 0.8, 0.2           # fifths for the tiers
+HISTORIE = 250                   # comparison with the ratings of the signals of the last 250 trading days
+MAX_POSITIONEN = 20              # upper limit of the number (with small positions, more than 10 fit in)
+MIN_KAUF = 0.05                  # no purchase below 5 % of the portfolio value (otherwise mini positions arise from leftover cash)
 ZUFALL_LAEUFE = 20
 START_DATEN = pd.date_range(f"{tc.ERSTES_TESTJAHR}-01-01", "2023-10-01", freq="6MS")
 SEED = 21
@@ -53,7 +53,7 @@ def log(msg: str) -> None:
 
 
 def tiers(score: np.ndarray, t_sig: np.ndarray) -> np.ndarray:
-    """Stufen aus dem Rang der Bewertung unter den Signalen der letzten HISTORIE Handelstage (ohne Zukunft)."""
+    """Tiers from the rank of the rating among the signals of the last HISTORIE trading days (without the future)."""
     w = np.full(len(score), GEWICHT_STANDARD)
     order = np.argsort(t_sig, kind="stable")
     hist_t, hist_s = [], []
@@ -72,7 +72,7 @@ def tiers(score: np.ndarray, t_sig: np.ndarray) -> np.ndarray:
 
 
 def simulate(m: dict, tr: pd.DataFrame, start: pd.Timestamp) -> dict:
-    """Wie trend_modell.simulate (long, Schlussauktion), aber mit Gewicht je Trade und Reserve-Regel."""
+    """Like trend_model.simulate (long, closing auction), but with a weight per trade and the reserve rule."""
     cal = m["close"].index
     cols = m["close"].columns
     P = m["close"].ffill().to_numpy()
@@ -103,7 +103,7 @@ def simulate(m: dict, tr: pd.DataFrame, start: pd.Timestamp) -> dict:
                 continue
             w = min(r.w, GEWICHT_MAX)
             if w > GEWICHT_STANDARD:
-                amount = min(w * V, cash - RESERVE * V)        # Mehrbetrag nur aus freiem Geld
+                amount = min(w * V, cash - RESERVE * V)        # extra amount only from free cash
                 amount = max(amount, min(GEWICHT_STANDARD * V, cash))
             else:
                 amount = min(w * V, cash)
@@ -194,12 +194,12 @@ def main() -> None:
                     sc[sel] = p[:, k]
             scores[f"CPO[{label}]"] = sc
         scores["Momentum-Staerke"] = rank
-        # Schwankung: Ziel = gleiches Risiko je Position wie eine durchschnittlich schwankende Aktie
+        # Schwankung: target = same risk per position as a stock with average volatility
         v = vol[st[rows], jj[rows]]
         med = np.nanmedian(vol, axis=1)[st[rows]]
         w_vol = np.clip(GEWICHT_STANDARD * med / v, GEWICHT_MIN, GEWICHT_MAX)
         w_vol = np.where(np.isfinite(w_vol), w_vol, GEWICHT_STANDARD)
-        # Wie gut sagt die Bewertung die spaetere Rendite je Trade voraus? (abgeschlossene Trades)
+        # How well does the rating predict the later return per trade? (closed trades)
         y = (meta.attrs["R"][rows, k] - tc.KOSTEN)
         done = ~meta.attrs["OPEN"][rows, k]
         for nm, sc in scores.items():
@@ -209,7 +209,7 @@ def main() -> None:
                             "rendite_oberstes_fuenftel_pct": y[ok][sc[ok] >= np.nanquantile(sc[ok], OBEN)].mean() * 100,
                             "rendite_unterstes_fuenftel_pct": y[ok][sc[ok] < np.nanquantile(sc[ok], UNTEN)].mean() * 100,
                             "rendite_alle_pct": y[ok].mean() * 100})
-        # Bezug: das bisherige Trendmodell (feste 1/10, hoechstens 10 Positionen, Restgeld wird auch klein investiert)
+        # Reference: the previous trend model (fixed 1/10, at most 10 positions, leftover cash is also invested in small amounts)
         res0 = []
         for i, s0 in enumerate(starts):
             sel = rows[cal[st[rows]] >= s0]
@@ -234,7 +234,7 @@ def main() -> None:
                       "anteil_klein_pct": (w < GEWICHT_STANDARD).mean() * 100})
             rows_out.append(r)
             curves[(sname, nm)] = eq
-        # Zufall mit gleicher Verteilung der Stufen wie CPO[je Tag]
+        # random with the same distribution of tiers as CPO[je Tag]
         w_ref = rules[[n for n in rules if n.startswith("CPO")][0]]
         rand = []
         for _ in range(ZUFALL_LAEUFE):

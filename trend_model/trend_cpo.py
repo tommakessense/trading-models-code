@@ -1,34 +1,34 @@
 """
-CPO (Conditional Parameter Optimization, nach Ernest Chan) fuer das Trendfolge-Modell - Xetra-Aktien, long
+CPO (Conditional Parameter Optimization, following Ernest Chan) for the trend-following model - Xetra stocks, long
 ================================================================================================================
 
-Idee: Statt einmal fest "200-Tage-Hoch, 20 Tage halten" zu waehlen, entscheidet ein Modell bei jedem Signal
-anhand der Lage am Signaltag (Aktie und Gesamtmarkt), welcher Ausstieg die beste Rendite je Haltetag
-erwarten laesst - und ob sich das Signal ueberhaupt lohnt.
+Idea: Instead of choosing once and for all "200-day high, hold for 20 days", a model decides for each signal,
+based on the situation on the signal day (stock and overall market), which exit can be expected to give the best
+return per holding day - and whether the signal is worth it at all.
 
-Einstiege : 15 Varianten aus 8 Familien (Ausbruch auf N-Tage-Hoch, Kurs ueber gleitender Linie, Kreuzen
-            zweier Linien, Zeitreihen-Momentum, Querschnitts-Momentum 12-1, Bollinger-Ausbruch,
-            Ausbruch mit Volumenschub), siehe EINSTIEGE.
-Ausstiege : 12 Varianten - feste Haltedauer 5 bis 120 Tage, Trendbruch (N-Tage-Tief), nachgezogener Stopp.
-Modell    : ein Gradient-Boosting-Modell fuer alle Kombinationen. Ziel: Rendite je Haltetag nach Kosten.
-            Merkmale: Rendite/Schwankung/Abstand zum Hoch/Umsatz der Aktie, Lage des Gesamtmarkts
-            (Trend, Schwankung, Anteil der Aktien ueber der 200-Tage-Linie, Zahl der Ausbrueche, Streuung),
-            Art des Einstiegs und des Ausstiegs, dazu ein reines Zufallsmerkmal (Placebo) als Kontrolle.
-Pruefung  : Walk-forward - fuer jedes Testjahr ab ERSTES_TESTJAHR wird nur mit Signalen trainiert, deren Trades
-            vor Jahresbeginn abgeschlossen waren. Danach Portfolio wie im Trendmodell (50.000 EUR,
-            max. 10 Positionen, IBKR-Gebuehren, Slippage).
-Vergleich : feste Variante des Trendmodells, immer 120 Tage, jaehrlich neu gewaehlte beste feste Kombination,
-            Zufallswahl (gleich viele Signale bzw. zufaelliger Ausstieg), Kaufen und Halten.
+Entries   : 15 variants from 8 families (breakout to an N-day high, price above a moving average, crossing
+            of two averages, time-series momentum, cross-sectional momentum 12-1, Bollinger breakout,
+            breakout with a volume surge), see EINSTIEGE.
+Exits     : 12 variants - fixed holding period 5 to 120 days, trend break (N-day low), trailing stop.
+Model     : one gradient boosting model for all combinations. Target: return per holding day after costs.
+            Features: return/volatility/distance to the high/turnover of the stock, situation of the overall market
+            (trend, volatility, share of stocks above the 200-day average, number of breakouts, dispersion),
+            type of entry and exit, plus a purely random feature (placebo) as a control.
+Testing   : walk-forward - for each test year from ERSTES_TESTJAHR onwards, training uses only signals whose trades
+            were closed before the start of the year. Then a portfolio as in the trend model (50,000 EUR,
+            max. 10 positions, IBKR fees, slippage).
+Comparison: fixed variant of the trend model, always 120 days, best fixed combination chosen anew every year,
+            random choice (same number of signals or random exit), buy and hold.
 
-Aufruf (im Ordner trend_modell):
-    ..\\.venv\\python.exe trend_cpo.py            Walk-forward-Rueckrechnung (einige Minuten)
-    ..\\.venv\\python.exe trend_cpo.py --heute    heutige Signale mit vom Modell gewaehltem Ausstieg
+Usage (in the folder trend_model):
+    ..\\.venv\\python.exe trend_cpo.py            walk-forward backtest (a few minutes)
+    ..\\.venv\\python.exe trend_cpo.py --heute    today's signals with the exit chosen by the model
 
-Ergebnisse in ergebnisse_cpo/: vergleich.csv, jahre.csv, raster_sharpe.csv/.png (alle festen Kombinationen),
-gewaehlte_ausstiege.csv, merkmale.csv (Wichtigkeit), trefferguete.csv, trades_*.csv.
+Results in ergebnisse_cpo/: vergleich.csv, jahre.csv, raster_sharpe.csv/.png (all fixed combinations),
+gewaehlte_ausstiege.csv, merkmale.csv (importance), trefferguete.csv, trades_*.csv.
 
-Hinweis: Der Kurs-Cache enthaelt nur heute noch handelbare Aktien (Survivorship Bias) - das schoent alle
-Varianten gleichermassen; fuer den Vergleich der Varianten untereinander ist es weniger wichtig.
+Note: The price cache contains only stocks that are still tradable today (survivorship bias) - this flatters all
+variants equally; for comparing the variants with each other it is less important.
 """
 from __future__ import annotations
 
@@ -41,18 +41,18 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-import trend_modell as tm
+import trend_model as tm
 
 warnings.filterwarnings("ignore")
 
-# ======================================================================================= Einstellungen
+# ======================================================================================= Settings
 BASE_DIR = Path(__file__).resolve().parent
 OUT_DIR = BASE_DIR / "ergebnisse_cpo"
 
-SIGNAL_START = "2017-09-01"      # erste handelbare Aktien (250 Tage Kursvorlauf)
-ERSTES_TESTJAHR = 2020           # Walk-forward: 2020, 2021, ... (Training immer nur mit den Jahren davor)
+SIGNAL_START = "2017-09-01"      # first tradable stocks (250 days of price history in advance)
+ERSTES_TESTJAHR = 2020           # walk-forward: 2020, 2021, ... (training always only with the years before)
 
-EINSTIEGE = {                    # Name: (Familie, Parameter)
+EINSTIEGE = {                    # name: (family, parameters)
     "Hoch 20": ("hoch", 20),
     "Hoch 50": ("hoch", 50),
     "Hoch 100": ("hoch", 100),
@@ -76,13 +76,13 @@ AUSSTIEGE = {
     "Zeit 40": {"typ": "zeit", "tage": 40},
     "Zeit 60": {"typ": "zeit", "tage": 60},
     "Zeit 120": {"typ": "zeit", "tage": 120},
-    "Trend 10": {"typ": "trend", "tage": 10},           # Schluss unter dem 10-Tage-Tief
+    "Trend 10": {"typ": "trend", "tage": 10},           # close below the 10-day low
     "Trend 20": {"typ": "trend", "tage": 20},
     "Trend 50": {"typ": "trend", "tage": 50},
-    "Nachzug 10%": {"typ": "nachzug", "pct": 0.10},     # 10 % unter dem hoechsten Schluss seit Einstieg
+    "Nachzug 10%": {"typ": "nachzug", "pct": 0.10},     # 10 % below the highest close since entry
     "Nachzug 15%": {"typ": "nachzug", "pct": 0.15},
     "Nachzug 25%": {"typ": "nachzug", "pct": 0.25},
-    # Kombination: feste Haltedauer, vorher raus, wenn der Kurs X % unter den hoechsten Schluss seit Einstieg faellt
+    # combination: fixed holding period, out earlier if the price falls X % below the highest close since entry
     "Zeit 40 + Stopp 10%": {"typ": "kombi", "tage": 40, "pct": 0.10},
     "Zeit 40 + Stopp 15%": {"typ": "kombi", "tage": 40, "pct": 0.15},
     "Zeit 60 + Stopp 10%": {"typ": "kombi", "tage": 60, "pct": 0.10},
@@ -91,20 +91,20 @@ AUSSTIEGE = {
     "Zeit 120 + Stopp 15%": {"typ": "kombi", "tage": 120, "pct": 0.15},
 }
 MAX_HALTEDAUER = 250
-BASIS = ("Hoch 200", "Zeit 20")  # beste Variante des Trendmodells im Lernzeitraum (200-Tage-Hoch, Zeit kurz)
+BASIS = ("Hoch 200", "Zeit 20")  # best variant of the trend model in the learning period (200-day high, short time)
 LANG = ("Hoch 200", "Zeit 120")
-VOLUMEN_SCHUB = 2.0              # "Hoch 50 + Volumenschub": Stuecke mind. 2x Median der letzten 50 Tage
-MIN_SCORE_BP = 0.0               # CPO-Einstieg: nur Signale mit erwarteter Rendite je Tag > 0 (nach Kosten)
-ZIELE = {                        # was das Modell vorhersagt (beide werden gerechnet und verglichen)
-    "je Tag": "absolut",         # Rendite je Haltetag nach Kosten
-    "relativ": "relativ",        # dasselbe minus Mittel aller Signale desselben Monats: trennt die Auswahl unter
-}                                # gleichzeitigen Signalen vom allgemeinen Marktverlauf
+VOLUMEN_SCHUB = 2.0              # "Hoch 50 + Volumenschub": shares at least 2x the median of the last 50 days
+MIN_SCORE_BP = 0.0               # CPO entry: only signals with an expected return per day > 0 (after costs)
+ZIELE = {                        # what the model predicts (both are calculated and compared)
+    "je Tag": "absolut",         # return per holding day after costs
+    "relativ": "relativ",        # the same minus the mean of all signals of the same month: separates the selection among
+}                                # simultaneous signals from the general market trend
 ZUFALL_LAEUFE = 20
 SEED = 11
-MAX_TRAIN_ZEILEN = 600_000       # mehr Trainingszeilen: zufaellige Auswahl (Laufzeit)
+MAX_TRAIN_ZEILEN = 600_000       # more training rows: random selection (run time)
 MODELL = dict(max_iter=250, learning_rate=0.05, max_leaf_nodes=31, min_samples_leaf=300,
               l2_regularization=1.0, random_state=SEED)
-KOSTEN = 2 * (tm.SLIPPAGE_BPS / 1e4 + tm.cost_pct())   # Kauf + Verkauf, wie im Trendmodell (Broker dort)
+KOSTEN = 2 * (tm.SLIPPAGE_BPS / 1e4 + tm.cost_pct())   # purchase + sale, as in the trend model (broker there)
 
 EX_NAMES = list(AUSSTIEGE)
 EN_NAMES = list(EINSTIEGE)
@@ -114,7 +114,7 @@ def log(msg: str) -> None:
     tm.log(msg)
 
 
-# ======================================================================================= Daten und Signale
+# ======================================================================================= Data and signals
 def load_data() -> dict:
     m = tm.load_market("aktien")
     raw = pd.read_pickle(tm.SCREENER_CACHE / tm.STOCK_FILE)
@@ -123,7 +123,7 @@ def load_data() -> dict:
 
 
 def _first(cond: pd.DataFrame, valid: pd.DataFrame) -> pd.DataFrame:
-    """Erster Tag, an dem die Bedingung gilt (am Vortag galt sie nicht, Vortag aber schon berechenbar)."""
+    """First day on which the condition holds (on the previous day it did not hold, but the previous day could already be calculated)."""
     return cond & ~cond.shift(1, fill_value=False) & valid.shift(1, fill_value=False)
 
 
@@ -154,12 +154,12 @@ def entry_signals(m: dict, names: list[str] | None = None) -> dict[str, np.ndarr
         elif fam == "bollinger":
             s, sd = c.rolling(n, min_periods=n).mean(), c.rolling(n, min_periods=n).std()
             ev = _first(c > s + 2 * sd, sd.notna())
-        elif fam == "quermom":                              # Monatsende: neu in den besten 10 % (12-1 Monate)
+        elif fam == "quermom":                              # month end: new in the best 10 % (12-1 months)
             score = (c.shift(21) / c.shift(n) - 1).where(m["elig"])
             top = score.rank(axis=1, pct=True) >= 0.9
             per = idx.to_period("M")
             me = pd.Series(idx, index=idx).groupby(per).transform("max").to_numpy() == idx.to_numpy()
-            me[-1] = False                                  # laufender Monat noch nicht zu Ende
+            me[-1] = False                                  # current month not yet over
             t_me = top[me]
             ev = (t_me & ~t_me.shift(1, fill_value=False)).reindex(idx, fill_value=False)
         else:
@@ -171,7 +171,7 @@ def entry_signals(m: dict, names: list[str] | None = None) -> dict[str, np.ndarr
 
 
 def exits_for(p: np.ndarray, lows: dict, e: int) -> tuple[np.ndarray, np.ndarray]:
-    """Ausstiegstag je Ausstiegsvariante fuer einen Einstieg am Schluss von Tag e; offen = Kursreihe endet vorher."""
+    """Exit day per exit variant for an entry at the close of day e; open = price series ends before."""
     n = len(p)
     x = np.empty(len(EX_NAMES), dtype=np.int64)
     opn = np.zeros(len(EX_NAMES), dtype=bool)
@@ -189,10 +189,10 @@ def exits_for(p: np.ndarray, lows: dict, e: int) -> tuple[np.ndarray, np.ndarray
         else:
             if r["typ"] == "trend":
                 hit = np.flatnonzero(seg < lows[r["tage"]][e + 1:end + 1])
-                t = e + 1 + hit[0] + 1 if len(hit) else None    # Signal am Schluss, Verkauf am naechsten Schluss
+                t = e + 1 + hit[0] + 1 if len(hit) else None    # signal at the close, sale at the next close
             else:
                 hit = np.flatnonzero(draw <= -r["pct"])
-                t = e + 1 + hit[0] if len(hit) else None        # Stopp liegt im Markt: Verkauf am selben Tag
+                t = e + 1 + hit[0] if len(hit) else None        # stop is placed in the market: sale on the same day
             if t is None:
                 t = e + MAX_HALTEDAUER
         if t > n - 1:
@@ -202,7 +202,7 @@ def exits_for(p: np.ndarray, lows: dict, e: int) -> tuple[np.ndarray, np.ndarray
 
 
 def all_trades(m: dict, sigs: dict) -> pd.DataFrame:
-    """Jedes Signal mit dem Ergebnis aller 12 Ausstiege (ohne Portfolio-Grenzen)."""
+    """Each signal with the result of all 12 exits (without portfolio limits)."""
     c = m["close"]
     pf = c.ffill()
     P = pf.to_numpy()
@@ -224,7 +224,7 @@ def all_trades(m: dict, sigs: dict) -> pd.DataFrame:
             X.append(x)
             O.append(opn)
     meta = pd.DataFrame(rows_meta, columns=["einstieg", "t_signal", "j", "e"]).astype(np.int64)
-    if not len(meta):                                       # keine Signale (z. B. am ersten Protokolltag)
+    if not len(meta):                                       # no signals (e.g. on the first protocol day)
         k = len(EX_NAMES)
         meta.attrs.update(X=np.zeros((0, k), dtype=np.int64), OPEN=np.zeros((0, k), dtype=bool),
                           R=np.zeros((0, k)), D=np.ones((0, k)))
@@ -236,9 +236,9 @@ def all_trades(m: dict, sigs: dict) -> pd.DataFrame:
     return meta
 
 
-# ======================================================================================= Merkmale
+# ======================================================================================= Features
 def feature_panels(m: dict) -> tuple[dict, pd.DataFrame]:
-    """Merkmale als Tafeln (Tag x Aktie) und Marktmerkmale (Tag) - einmal rechnen, beliebig oft abfragen."""
+    """Features as panels (day x stock) and market features (day) - calculate once, query as often as needed."""
     c, elig = m["close"], m["elig"]
     pf = c.ffill()
     lr = np.log(pf).diff()
@@ -257,7 +257,7 @@ def feature_panels(m: dict) -> tuple[dict, pd.DataFrame]:
     vol = m["volume"].where(m["volume"] > 0)
     F["volumen_schub"] = np.log(vol.rolling(5, min_periods=3).mean() / vol.rolling(60, min_periods=30).median().shift(5))
     F["rang_momentum_126"] = (pf / pf.shift(126) - 1).where(elig).rank(axis=1, pct=True)
-    # Gesamtmarkt: gleichgewichteter Index der handelbaren Aktien
+    # overall market: equal-weighted index of the tradable stocks
     mret = lr.where(elig.shift(1, fill_value=False)).mean(axis=1).fillna(0)
     ix = np.exp(mret.cumsum())
     M = pd.DataFrame(index=c.index)
@@ -291,7 +291,7 @@ def features(m: dict, meta: pd.DataFrame, panels: tuple | None = None) -> pd.Dat
 
 
 def stack(feat: pd.DataFrame, rows: np.ndarray) -> pd.DataFrame:
-    """Je Signal eine Zeile pro Ausstieg (Merkmale des Ausstiegs angehaengt)."""
+    """One row per exit for each signal (features of the exit appended)."""
     k = len(EX_NAMES)
     f = feat.iloc[np.repeat(rows, k)].reset_index(drop=True)
     typ = {"zeit": 0, "trend": 1, "nachzug": 2, "kombi": 3}
@@ -302,12 +302,12 @@ def stack(feat: pd.DataFrame, rows: np.ndarray) -> pd.DataFrame:
 
 
 def target(meta: pd.DataFrame) -> np.ndarray:
-    """Rendite je Haltetag nach Kosten in Basispunkten (Signale x Ausstiege)."""
+    """Return per holding day after costs in basis points (signals x exits)."""
     return (meta.attrs["R"] - KOSTEN) / meta.attrs["D"] * 1e4
 
 
 def model_stamp() -> dict:
-    """Kennung der Daten und Einstellungen, zu denen gespeicherte Modelle passen."""
+    """Identifier of the data and settings that stored models match."""
     import sklearn
     return {"kurse": (tm.SCREENER_CACHE / tm.STOCK_FILE).stat().st_mtime, "testjahr": ERSTES_TESTJAHR,
             "einstiege": EN_NAMES, "ausstiege": EX_NAMES, "ziele": ZIELE, "modell": MODELL,
@@ -346,8 +346,8 @@ def _demean(v: np.ndarray, groups: np.ndarray) -> np.ndarray:
 
 def walk_forward(m: dict, meta: pd.DataFrame, feat: pd.DataFrame, ziel: str = "absolut",
                  models_out: dict | None = None) -> tuple[np.ndarray, pd.DataFrame, pd.DataFrame]:
-    """Vorhersage (Signale x Ausstiege) fuer alle Signale ab ERSTES_TESTJAHR, je Jahr nur mit Vorjahren trainiert.
-    ziel 'relativ': Trainingsziel minus Mittel aller Trades desselben Signalmonats (ohne Markttiming)."""
+    """Prediction (signals x exits) for all signals from ERSTES_TESTJAHR onwards, trained per year only on prior years.
+    ziel 'relativ': training target minus the mean of all trades of the same signal month (without market timing)."""
     cal = m["close"].index
     y_all = target(meta)
     K = len(EX_NAMES)
@@ -361,7 +361,7 @@ def walk_forward(m: dict, meta: pd.DataFrame, feat: pd.DataFrame, ziel: str = "a
     years = range(ERSTES_TESTJAHR, cal[-1].year + 1)
     for Y in years:
         y0 = pd.Timestamp(f"{Y}-01-01")
-        done = (cal.values[X] < np.datetime64(y0)) & ~O    # Trade vor Jahresbeginn abgeschlossen
+        done = (cal.values[X] < np.datetime64(y0)) & ~O    # trade closed before the start of the year
         tr_sig = np.flatnonzero(done.any(axis=1))
         te_sig = np.flatnonzero(sig_year == Y)
         if len(te_sig) == 0 or len(tr_sig) < 1000:
@@ -384,7 +384,7 @@ def walk_forward(m: dict, meta: pd.DataFrame, feat: pd.DataFrame, ziel: str = "a
         Xte = stack(feat, te_sig)
         p = model.predict(Xte).reshape(len(te_sig), len(EX_NAMES))
         pred[te_sig] = p
-        # Trefferguete: Rangkorrelation Vorhersage / spaeteres Ergebnis (nur abgeschlossene Trades)
+        # hit quality: rank correlation of prediction / later result (closed trades only)
         yte = y_all[te_sig]
         okte = ~O[te_sig]
         ic_all = pd.Series(p[okte]).corr(pd.Series(yte[okte]), method="spearman")
@@ -398,7 +398,7 @@ def walk_forward(m: dict, meta: pd.DataFrame, feat: pd.DataFrame, ziel: str = "a
         ic_rows.append({"ziel": ziel, "jahr": Y, "trainings_signale": len(tr_sig), "test_signale": len(te_sig),
                         "rangkorrelation_alle": ic_all, "rangkorrelation_im_monat": ic_mon,
                         "rangkorrelation_gewaehlt": ic_sig})
-        # Wichtigkeit der Merkmale im Testjahr (Permutation, Stichprobe)
+        # importance of the features in the test year (permutation, sample)
         try:
             from sklearn.inspection import permutation_importance
             rows = np.flatnonzero(okte.ravel())
@@ -411,16 +411,16 @@ def walk_forward(m: dict, meta: pd.DataFrame, feat: pd.DataFrame, ziel: str = "a
                                             n_repeats=3, random_state=SEED, scoring="neg_mean_squared_error")
                 for k, col in enumerate(Xte.columns):
                     imp_rows.append({"ziel": ziel, "jahr": Y, "merkmal": col, "wichtigkeit": pi.importances_mean[k]})
-        except Exception as ex:                             # Wichtigkeit ist nur Zusatzinfo
+        except Exception as ex:                             # importance is only additional information
             log(f"  Wichtigkeit {Y} nicht berechnet: {ex}")
         log(f"  [{ziel}] Testjahr {Y}: trainiert mit {len(idx):,} Zeilen ({time.time() - t0:.0f} s), "
             f"Rangkorrelation {ic_all:+.3f}, im Monat {ic_mon:+.3f}".replace(",", "."))
     return pred, pd.DataFrame(ic_rows), pd.DataFrame(imp_rows)
 
 
-# ======================================================================================= Strategien
+# ======================================================================================= Strategies
 def to_trades(meta: pd.DataFrame, rows: np.ndarray, exits: np.ndarray, rang: np.ndarray) -> pd.DataFrame:
-    """Format von trend_modell.simulate: j, t_signal, e, x, kurs_aus, rendite, tage, grund, rang."""
+    """Format of trend_model.simulate: j, t_signal, e, x, kurs_aus, rendite, tage, grund, rang."""
     X, R = meta.attrs["X"], meta.attrs["R"]
     return pd.DataFrame({"j": meta["j"].to_numpy()[rows], "t_signal": meta["t_signal"].to_numpy()[rows],
                          "e": meta["e"].to_numpy()[rows], "x": X[rows, exits], "kurs_aus": np.nan,
@@ -429,7 +429,7 @@ def to_trades(meta: pd.DataFrame, rows: np.ndarray, exits: np.ndarray, rang: np.
 
 
 def one_per_day(meta: pd.DataFrame, rows: np.ndarray, score: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Mehrere Einstiege am selben Tag fuer dieselbe Aktie: nur der mit der hoechsten Bewertung."""
+    """Several entries on the same day for the same stock: only the one with the highest rating."""
     d = pd.DataFrame({"r": rows, "s": score, "t": meta["t_signal"].to_numpy()[rows], "j": meta["j"].to_numpy()[rows]})
     d = d.sort_values("s", ascending=False).drop_duplicates(["t", "j"])
     return d["r"].to_numpy(), d["s"].to_numpy()
@@ -468,7 +468,7 @@ def run_backtest() -> None:
     def sim(tr: pd.DataFrame, start: pd.Timestamp = test_start) -> dict:
         return tm.simulate(m, tr, "long", start)
 
-    # ---- 1. Raster aller festen Kombinationen (ueber den ganzen Zeitraum, causal) -> Auswahl je Vorjahre
+    # ---- 1. Grid of all fixed combinations (over the whole period, causal) -> selection per previous years
     log(f"Raster: {len(EN_NAMES) * len(EX_NAMES)} feste Kombinationen im Portfolio ...")
     grid_eq, grid_rows = {}, []
     sig_start = pd.Timestamp(SIGNAL_START)
@@ -490,7 +490,7 @@ def run_backtest() -> None:
     pd.DataFrame({f"{a} | {b}": eq for (a, b), eq in grid_eq.items()}).to_pickle(OUT_DIR / "raster_kurven.pkl")
     raster_chart(grid)
 
-    # Walk-forward: je Testjahr die feste Kombination mit der besten Sharpe Ratio aller Vorjahre
+    # walk-forward: per test year the fixed combination with the best Sharpe ratio of all previous years
     wf_rows, wf_choice = [], {}
     for Y in range(ERSTES_TESTJAHR, cal[-1].year + 1):
         best = max(grid_eq, key=lambda k: np.nan_to_num(tm._sharpe(grid_eq[k], sig_start, pd.Timestamp(f"{Y - 1}-12-31")),
@@ -501,7 +501,7 @@ def run_backtest() -> None:
         wf_rows.append(to_trades(meta, rows, np.full(len(rows), k), mom[sig_t[rows], meta["j"].to_numpy()[rows]]))
     wf_trades = pd.concat(wf_rows, ignore_index=True)
 
-    # ---- 2. CPO walk-forward (beide Ziele)
+    # ---- 2. CPO walk-forward (both targets)
     preds, ics, imps, models = {}, [], [], {}
     for label, ziel in ZIELE.items():
         log(f"CPO walk-forward, Ziel '{label}' ...")
@@ -509,7 +509,7 @@ def run_backtest() -> None:
         preds[label], ic_, imp_ = walk_forward(m, meta, feat, ziel, models_out=models[label])
         ics.append(ic_)
         imps.append(imp_)
-    save_models(models)                                     # fuer cpo_stresstest.py
+    save_models(models)                                     # for cpo_stresstest.py
     ic, imp = pd.concat(ics, ignore_index=True), pd.concat(imps, ignore_index=True)
 
     strategies: dict[str, pd.DataFrame] = {}
@@ -535,7 +535,7 @@ def run_backtest() -> None:
         cpo_rows_by[label] = r2[sel2]
         strategies[f"CPO[{label}] Einstieg + Ausstieg"] = to_trades(meta, r2[sel2], pred[r2[sel2]].argmax(axis=1), s2[sel2])
 
-    # ---- 3. Zufall zum Vergleich
+    # ---- 3. Chance for comparison
     rng = np.random.default_rng(SEED)
     rand_specs = {
         f"Zufall: Ausstieg zufaellig (Einstieg {BASIS[0]})":
@@ -584,7 +584,7 @@ def run_backtest() -> None:
             for a, b in ((" ", "_"), ("+", "und"), ("[", "_"), ("]", ""), ("__", "_"), ("__", "_")):
                 fn = fn.replace(a, b)
             tm.save_csv(tl.assign(name=tl["ticker"].map(m["names"])), fn + ".csv")
-    # Welche Ausstiege und Einstiege waehlt CPO je Jahr?
+    # Which exits and entries does CPO choose per year?
     chosen, ent = {}, {}
     for label in preds:
         for kind in ("Einstieg + Ausstieg", f"Ausstieg (Einstieg {BASIS[0]})"):
@@ -602,7 +602,7 @@ def run_backtest() -> None:
 
 
 def random_like(meta: pd.DataFrame, cal: pd.DatetimeIndex, pool: np.ndarray, chosen: np.ndarray, rng) -> pd.DataFrame:
-    """Gleich viele Signale je Jahr wie CPO, zufaellig aus allen Einstiegen, zufaelliger Ausstieg und Rang."""
+    """Same number of signals per year as CPO, randomly from all entries, random exit and rank."""
     yr_pool = cal[meta["t_signal"].to_numpy()[pool]].year
     yr_ch = pd.Series(cal[meta["t_signal"].to_numpy()[chosen]].year).value_counts()
     rows = []
@@ -613,7 +613,7 @@ def random_like(meta: pd.DataFrame, cal: pd.DatetimeIndex, pool: np.ndarray, cho
     return to_trades(meta, rows, rng.integers(0, len(EX_NAMES), len(rows)), rng.random(len(rows)))
 
 
-# ======================================================================================= Ausgabe
+# ======================================================================================= Output
 def raster_chart(grid: pd.DataFrame) -> None:
     try:
         import matplotlib
@@ -710,7 +710,7 @@ def report(comp, years, grid, wf_choice, ic, imp, chosen, ent, counts, secs) -> 
     print("hinten liegt.")
 
 
-# ======================================================================================= Heute
+# ======================================================================================= Today
 def today() -> None:
     m = load_data()
     cal = m["close"].index
@@ -729,8 +729,8 @@ def today() -> None:
         keep = np.sort(rng.choice(keep, MAX_TRAIN_ZEILEN, replace=False))
     lo, hi = np.percentile(ytr[keep], [1, 99])
     model = make_model().fit(Xtr.iloc[keep], np.clip(ytr[keep], lo, hi))
-    # Signale am letzten Handelstag (Einstieg zum naechsten Schlusskurs) - all_trades verwirft sie, weil der
-    # Einstiegstag noch fehlt; deshalb hier direkt aus den Signalen
+    # signals on the last trading day (entry at the next closing price) - all_trades discards them because the
+    # entry day is still missing; therefore taken directly from the signals here
     t_last = len(cal) - 1
     cand = [(v, j) for v, name in enumerate(EN_NAMES) for j in np.flatnonzero(sigs[name][t_last])]
     print("\n" + "=" * 100)
@@ -755,8 +755,8 @@ def today() -> None:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="CPO fuer das Trendfolge-Modell (Xetra-Aktien, long)")
-    ap.add_argument("--heute", action="store_true", help="heutige Signale mit vom Modell gewaehltem Ausstieg")
+    ap = argparse.ArgumentParser(description="CPO for the trend-following model (Xetra stocks, long)")
+    ap.add_argument("--heute", action="store_true", help="today's signals with the exit chosen by the model")
     args = ap.parse_args()
     tm.OUT_DIR = OUT_DIR
     try:
