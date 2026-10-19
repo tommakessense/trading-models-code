@@ -1,5 +1,5 @@
 """
-trend_protokoll.py - trend following on Xetra (Robust 1 and Robust 2) with protocol mode for paper trading
+trend_protocol.py - trend following on Xetra (Robust 1 and Robust 2) with protocol mode for paper trading
 ================================================================================================================
 
 Two finished strategies, each as its own account with CAPITAL EUR (without leverage, at most 10 positions of 1/10 each):
@@ -13,7 +13,7 @@ Two finished strategies, each as its own account with CAPITAL EUR (without lever
 
 For both: only stocks with a median turnover of at least 1 million EUR per day (last 250 days) and a price >= 1 EUR.
 If there are more signals than free slots, the stocks with the strongest 6-month trend are bought first.
-Basis: trend_cpo.py / trend_bewertung.py / trend_cpo_lang.py (backtest 2006-2026, walk-forward).
+Basis: trend_cpo.py / trend_evaluation.py / trend_cpo_long.py (backtest 2006-2026, walk-forward).
 
 Execution
 ---------
@@ -24,26 +24,26 @@ Robust 2 apply to today's closing price: If the price is below them shortly befo
 auction.
 
 Costs: order fees of Scalable Capital (FREE, Xetra 1.99 EUR per order) for all stocks tradable there,
-otherwise IBKR (0.05 %, min. 3 EUR) - set in trend_model.py (BROKER, SCALABLE_TARIF,
-scalable_nicht_handelbar.csv) - plus SLIPPAGE_BPS per order. Taxes are not taken into account.
+otherwise IBKR (0.05 %, min. 3 EUR) - set in trend_model.py (BROKER, SCALABLE_PLAN,
+scalable_not_tradable.csv) - plus SLIPPAGE_BPS per order. Taxes are not taken into account.
 
 Usage (in the folder trend_model)
 ---------------------------------
-    ..\\.venv\\python.exe trend_protokoll.py --protokoll       protocol: update prices, book the day, orders for today
-    ..\\.venv\\python.exe trend_protokoll.py --protokoll-neu   start the protocol anew (the old one is archived)
-    ..\\.venv\\python.exe trend_protokoll.py --rueckrechnung   backtest of both strategies with the current costs
-    protokoll_taeglich.bat                                    daily run (Windows task, see aufgabe_einrichten.bat)
+    ..\\.venv\\python.exe trend_protocol.py --protocol       protocol: update prices, book the day, orders for today
+    ..\\.venv\\python.exe trend_protocol.py --protocol-new   start the protocol anew (the old one is archived)
+    ..\\.venv\\python.exe trend_protocol.py --backtest   backtest of both strategies with the current costs
+    protocol_daily.bat                                    daily run (Windows task, see task_setup.bat)
 
 Protocol mode
 -------------
-On the first call, the start day, settings and stock list are frozen (protokoll/start.json). Signals from the
+On the first call, the start day, settings and stock list are frozen (protocol/start.json). Signals from the
 closing price of the start day onwards are counted; the first purchase is therefore on the next trading day at the earliest. Each run
-    - loads the new prices from Yahoo (daten/kurse_protokoll.pkl; the first time from the screener cache),
-    - calculates both accounts from the start day and appends the daily status to protokoll/protokoll.csv
-      (existing rows are never changed; days entered later are marked as "nachgetragen"),
-    - writes each order with the model price to protokoll/ausfuehrungen.csv. Anyone who executes the orders in a demo account
-      enters the actual price there in "realer_kurs" (-> measured slippage). If a purchase was
-      not possible, enter "nein" in "ausfuehrbar": The account is then additionally shown without this trade.
+    - loads the new prices from Yahoo (data/prices_protocol.pkl; the first time from the screener cache),
+    - calculates both accounts from the start day and appends the daily status to protocol/protocol.csv
+      (existing rows are never changed; days entered later are marked as "added_later"),
+    - writes each order with the model price to protocol/executions.csv. Anyone who executes the orders in a demo account
+      enters the actual price there in "real_price" (-> measured slippage). If a purchase was
+      not possible, enter "no" in "executable": The account is then additionally shown without this trade.
     - shows the orders for today's closing auction, the stop lines and the result since the start compared
       to the DAX and to the equal-weighted index of the same stocks.
 The share quantities of the orders are calculated with the closing price of the previous day; booking uses the actual
@@ -65,13 +65,13 @@ import trend_cpo as tc
 import trend_model as tm
 
 # ======================================================================================= Settings
-STRATEGIEN = {                   # name: (entry from trend_cpo.EINSTIEGE, exit from trend_cpo.AUSSTIEGE)
-    "Robust 1": ("Hoch 200", "Zeit 20"),
-    "Robust 2": ("Hoch 50 + Volumenschub", "Zeit 60 + Stopp 15%"),
+STRATEGIES = {                   # name: (entry from trend_cpo.ENTRY_RULES, exit from trend_cpo.EXIT_RULES)
+    "Robust 1": ("High 200", "Time 20"),
+    "Robust 2": ("High 50 + volume surge", "Time 60 + stop 15%"),
 }
-BESCHREIBUNG = {
-    "Robust 1": "neues 200-Tage-Hoch, 20 Handelstage halten",
-    "Robust 2": "neues 50-Tage-Hoch mit doppeltem Volumen, 60 Handelstage halten, Stopp 15 % unter dem Hoch seit Kauf",
+DESCRIPTION = {
+    "Robust 1": "new 200-day high, hold for 20 trading days",
+    "Robust 2": "new 50-day high with double volume, hold for 60 trading days, stop 15 % below the high since purchase",
 }
 CAPITAL = tm.CAPITAL             # a separate account for each strategy
 MIN_DAYS_FOR_SHARPE = 60
@@ -79,10 +79,10 @@ BENCH = "EXS1.DE"                # iShares Core DAX
 DOWNLOAD_CHUNK = 50
 
 BASE_DIR = Path(__file__).resolve().parent
-PROT_DIR = BASE_DIR / "protokoll"
-KURS_DATEI = tm.DATA_DIR / "kurse_protokoll.pkl"
-KURS_START = BASE_DIR / "daten_start" / "kurse_protokoll.pkl.xz"   # initial stock of prices (e.g. for GitHub Actions)
-WOCHENTAG = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
+PROTOCOL_DIR = BASE_DIR / "protocol"
+PRICE_FILE = tm.DATA_DIR / "prices_protocol.pkl"
+PRICE_START = BASE_DIR / "data_start" / "prices_protocol.pkl.xz"   # initial stock of prices (e.g. for GitHub Actions)
+WEEKDAY = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 
 def log(msg: str) -> None:
@@ -99,16 +99,16 @@ def num(x: float, d: int = 2) -> str:
 
 def save_csv(df: pd.DataFrame, name: str, index: bool = False) -> None:
     old = tm.OUT_DIR
-    tm.OUT_DIR = PROT_DIR
+    tm.OUT_DIR = PROTOCOL_DIR
     tm.save_csv(df, name, index=index)
     tm.OUT_DIR = old
 
 
 # ======================================================================================= Prices
 def _read_screener_cache() -> dict:
-    src = tm.SCREENER_CACHE / "prices_aktien.pkl"
+    src = tm.SCREENER_CACHE / "prices_stocks.pkl"
     if not src.exists():
-        raise SystemExit(f"Kurs-Cache des Screeners fehlt: {src}")
+        raise SystemExit(f"Price cache of the screener missing: {src}")
     raw = pd.read_pickle(src)
     d = {"close": raw["close"].astype(float), "volume": raw["volume"].astype(float), "bench": pd.DataFrame()}
     etf = tm.SCREENER_CACHE / tm.ETF_FILE
@@ -142,23 +142,23 @@ def _merge(old: pd.DataFrame, new: pd.DataFrame, rescale: bool) -> pd.DataFrame:
 def update_prices(download: bool = True) -> bool:
     """Load prices and turnover from Yahoo since the last stored day."""
     tm.DATA_DIR.mkdir(exist_ok=True)
-    if KURS_DATEI.exists():
-        d = pd.read_pickle(KURS_DATEI)
-    elif KURS_START.exists():
-        log(f"Kursdaten aus dem Startbestand {KURS_START.name}")
-        d = pd.read_pickle(KURS_START)
+    if PRICE_FILE.exists():
+        d = pd.read_pickle(PRICE_FILE)
+    elif PRICE_START.exists():
+        log(f"Price data from the initial data set {PRICE_START.name}")
+        d = pd.read_pickle(PRICE_START)
     else:
         d = _read_screener_cache()
     if not download:
-        if not KURS_DATEI.exists():
-            pd.to_pickle(d, KURS_DATEI)
+        if not PRICE_FILE.exists():
+            pd.to_pickle(d, PRICE_FILE)
         return True
     tickers = list(d["close"].columns)
     since = (d["close"].index.max() - pd.Timedelta(days=21)).strftime("%Y-%m-%d")
     try:
         import yfinance as yf
         closes, vols = [], []
-        log(f"Lade Kurse seit {since} fuer {len(tickers)} Aktien von Yahoo Finance ...")
+        log(f"Loading prices since {since} for {len(tickers)} stocks from Yahoo Finance ...")
         for i in range(0, len(tickers) + 1, DOWNLOAD_CHUNK):
             chunk = tickers[i:i + DOWNLOAD_CHUNK]
             if i + DOWNLOAD_CHUNK >= len(tickers):
@@ -172,7 +172,7 @@ def update_prices(download: bool = True) -> bool:
                                        group_by="column")
                     break
                 except Exception as e:
-                    log(f"  Download-Fehler ({type(e).__name__}), neuer Versuch in {10 * (attempt + 1)}s")
+                    log(f"  Download error ({type(e).__name__}), new attempt in {10 * (attempt + 1)}s")
                     time.sleep(10 * (attempt + 1))
             if data is None or data.empty:
                 continue
@@ -181,7 +181,7 @@ def update_prices(download: bool = True) -> bool:
             closes.append(c)
             vols.append(v)
         if not closes:
-            raise RuntimeError("keine Kurse erhalten")
+            raise RuntimeError("no prices received")
         close = pd.concat(closes, axis=1)
         vol = pd.concat(vols, axis=1)
         close.index = vol.index = pd.to_datetime(close.index).tz_localize(None).normalize()
@@ -191,27 +191,27 @@ def update_prices(download: bool = True) -> bool:
         close = close.drop(columns=[BENCH], errors="ignore")
         vol = vol.drop(columns=[BENCH], errors="ignore")
         if close.notna().sum().sum() == 0:
-            raise RuntimeError("keine Kurse erhalten")
+            raise RuntimeError("no prices received")
         d["close"] = _merge(d["close"], close.reindex(columns=tickers), True)[tickers]
         d["volume"] = _merge(d["volume"], vol.reindex(columns=tickers), False)[tickers]
         if not bench_new.empty:
             d["bench"] = _merge(d["bench"] if len(d.get("bench", [])) else bench_new, bench_new, True)
-        pd.to_pickle(d, KURS_DATEI)
-        log(f"Kurse aktualisiert (bis {d['close'].dropna(how='all').index.max():%d.%m.%Y})")
+        pd.to_pickle(d, PRICE_FILE)
+        log(f"Prices updated (up to {d['close'].dropna(how='all').index.max():%d.%m.%Y})")
         return True
     except Exception as e:
-        if not KURS_DATEI.exists():
-            pd.to_pickle(d, KURS_DATEI)
-        log(f"Yahoo nicht erreichbar ({type(e).__name__}) - verwende gespeicherte Kurse bis "
+        if not PRICE_FILE.exists():
+            pd.to_pickle(d, PRICE_FILE)
+        log(f"Yahoo not reachable ({type(e).__name__}) - using stored prices up to "
             f"{d['close'].dropna(how='all').index.max():%d.%m.%Y}")
         return False
 
 
 def load_market() -> dict:
     """Market as in the trend model (tradability, turnover), but from the protocol prices."""
-    tm.STOCK_FILE = str(KURS_DATEI)                         # absolute path replaces the screener cache
+    tm.STOCK_FILE = str(PRICE_FILE)                         # absolute path replaces the screener cache
     m = tc.load_data()
-    d = pd.read_pickle(KURS_DATEI)
+    d = pd.read_pickle(PRICE_FILE)
     b = d.get("bench")
     m["bench"] = (b[BENCH].reindex(m["close"].index).ffill()
                   if isinstance(b, pd.DataFrame) and BENCH in b.columns else None)
@@ -233,7 +233,7 @@ def build_trades(m: dict, entry: str, exit_name: str, s0: int) -> tuple[pd.DataF
     tr = tc.to_trades(meta, rows, np.full(len(rows), k), mom[meta["t_signal"].to_numpy(), meta["j"].to_numpy()])
     opn = meta.attrs["OPEN"][:, k] if len(meta) else np.zeros(0, dtype=bool)
     tr.loc[opn, "x"] = len(cal) + 10 ** 6
-    tr.loc[opn, "grund"] = "offen"
+    tr.loc[opn, "reason"] = "open"
     return tr, ev
 
 
@@ -248,7 +248,7 @@ def run_account(m: dict, tr: pd.DataFrame, s0: int, skip: set | None = None, str
     slip = tm.SLIPPAGE_BPS / 1e4
     first = s0 + 1
     by_entry: dict[int, list] = {}
-    for r in tr.sort_values(["e", "rang"], ascending=[True, False]).itertuples(index=False):
+    for r in tr.sort_values(["e", "rank"], ascending=[True, False]).itertuples(index=False):
         if skip and (strat, cols[r.j], f"{cal[r.e]:%Y-%m-%d}") in skip:
             continue
         by_entry.setdefault(r.e, []).append(r)
@@ -266,7 +266,7 @@ def run_account(m: dict, tr: pd.DataFrame, s0: int, skip: set | None = None, str
         fees += mf
         for j in [j for j, q in pos.items() if q["x"] == t]:
             q = pos.pop(j)
-            q["grund"] = "Zeit" if t - q["e"] >= hold else "Stopp"
+            q["reason"] = "time" if t - q["e"] >= hold else "Stop"
             px = P[t, j]
             gross = q["shares"] * px
             fee, sl = tm.commission(gross, cols[j]), gross * slip
@@ -274,13 +274,13 @@ def run_account(m: dict, tr: pd.DataFrame, s0: int, skip: set | None = None, str
             fees += fee
             slips += sl
             pnl = gross - fee - sl - q["alloc"] - q["cost_in"]
-            fills.append({"datum": f"{cal[t]:%Y-%m-%d}", "strategie": strat, "aktie": cols[j], "order": "verkaufen",
-                          "seite": "verkauf", "grund": q["grund"], "stueck": q["shares"], "modellkurs": round(px, 4),
-                          "gebuehr_eur": round(fee, 2), "slippage_eur": round(sl, 2)})
-            closed.append({"strategie": strat, "aktie": cols[j], "kauf": f"{cal[q['e']]:%Y-%m-%d}",
-                           "verkauf": f"{cal[t]:%Y-%m-%d}", "tage": t - q["e"], "grund": q["grund"],
-                           "stueck": q["shares"], "kaufkurs": round(q["pe"], 4), "verkaufskurs": round(px, 4),
-                           "ergebnis_eur": round(pnl, 2), "rendite_pct": round(pnl / q["alloc"] * 100, 2)})
+            fills.append({"date": f"{cal[t]:%Y-%m-%d}", "strategy": strat, "stock": cols[j], "order": "sell",
+                          "side": "sale", "reason": q["reason"], "shares": q["shares"], "model_price": round(px, 4),
+                          "fee_eur": round(fee, 2), "slippage_eur": round(sl, 2)})
+            closed.append({"strategy": strat, "stock": cols[j], "purchase": f"{cal[q['e']]:%Y-%m-%d}",
+                           "sale": f"{cal[t]:%Y-%m-%d}", "days": t - q["e"], "reason": q["reason"],
+                           "shares": q["shares"], "buy_price": round(q["pe"], 4), "sell_price": round(px, 4),
+                           "result_eur": round(pnl, 2), "return_pct": round(pnl / q["alloc"] * 100, 2)})
         eq_now = cash + sum(q["shares"] * P[t, j] for j, q in pos.items())
         for r in by_entry.get(t, []):
             if len(pos) >= tm.MAX_POSITIONS:
@@ -300,10 +300,10 @@ def run_account(m: dict, tr: pd.DataFrame, s0: int, skip: set | None = None, str
             fees += fee
             slips += sl
             pos[j] = {"e": t, "x": int(r.x), "shares": shares, "pe": P[t, j], "alloc": alloc, "cost_in": fee + sl,
-                      "grund": ""}
-            fills.append({"datum": f"{cal[t]:%Y-%m-%d}", "strategie": strat, "aktie": cols[j], "order": "kaufen",
-                          "seite": "kauf", "grund": "Signal", "stueck": shares, "modellkurs": round(P[t, j], 4),
-                          "gebuehr_eur": round(fee, 2), "slippage_eur": round(sl, 2)})
+                      "reason": ""}
+            fills.append({"date": f"{cal[t]:%Y-%m-%d}", "strategy": strat, "stock": cols[j], "order": "buy",
+                          "side": "purchase", "reason": "Signal", "shares": shares, "model_price": round(P[t, j], 4),
+                          "fee_eur": round(fee, 2), "slippage_eur": round(sl, 2)})
         held = sum(q["shares"] * P[t, j] for j, q in pos.items())
         equity[t] = cash + held
         invested[t] = held
@@ -316,8 +316,8 @@ def run_account(m: dict, tr: pd.DataFrame, s0: int, skip: set | None = None, str
 def kpis(eq: pd.Series) -> dict:
     e = eq.dropna()
     r = e.pct_change().dropna()
-    out = {"stand": float(e.iloc[-1]), "rendite": float(e.iloc[-1] / e.iloc[0] - 1),
-           "max_dd": float((1 - e / e.cummax()).max()), "tage": len(r)}
+    out = {"balance": float(e.iloc[-1]), "return": float(e.iloc[-1] / e.iloc[0] - 1),
+           "max_dd": float((1 - e / e.cummax()).max()), "days": len(r)}
     out["sharpe"] = float(r.mean() / r.std() * np.sqrt(252)) if len(r) >= MIN_DAYS_FOR_SHARPE and r.std() > 0 else np.nan
     return out
 
@@ -339,14 +339,14 @@ def next_session(last: pd.Timestamp, test: bool = False) -> pd.Timestamp:
 
 # ======================================================================================= Protocol
 def frozen_settings() -> dict:
-    s = {"STRATEGIEN": {k: list(v) for k, v in STRATEGIEN.items()}}
-    for name, (en, ex) in STRATEGIEN.items():
-        s[f"{name}_einstieg"] = list(map(str, tc.EINSTIEGE[en]))
-        s[f"{name}_ausstieg"] = tc.AUSSTIEGE[ex]
+    s = {"STRATEGIES": {k: list(v) for k, v in STRATEGIES.items()}}
+    for name, (en, ex) in STRATEGIES.items():
+        s[f"{name}_entry"] = list(map(str, tc.ENTRY_RULES[en]))
+        s[f"{name}_exit"] = tc.EXIT_RULES[ex]
     s.update({"MAX_POSITIONS": tm.MAX_POSITIONS, "CAPITAL": CAPITAL, "MIN_TURNOVER_EUR": tm.MIN_TURNOVER_EUR,
               "MIN_PRICE": tm.MIN_PRICE, "MIN_HISTORY": tm.MIN_HISTORY, "MOMENTUM_DAYS": tm.MOMENTUM_DAYS,
-              "VOLUMEN_SCHUB": tc.VOLUMEN_SCHUB, "MAX_HALTEDAUER": tc.MAX_HALTEDAUER,
-              "AUSFUEHRUNG": "Xetra-Schlussauktion am Handelstag nach dem Signal"})
+              "VOLUME_SURGE": tc.VOLUME_SURGE, "MAX_HOLDING_DAYS": tc.MAX_HOLDING_DAYS,
+              "EXECUTION": "Xetra closing auction on the trading day after the signal"})
     return s
 
 
@@ -363,15 +363,15 @@ def to_float(col: pd.Series) -> pd.Series:
     return pd.to_numeric(col.astype(str).str.strip().str.replace(",", ".", regex=False), errors="coerce")
 
 
-def run_protocol(restart: bool, stichtag: str | None) -> None:
+def run_protocol(restart: bool, cutoff: str | None) -> None:
     now = time.strftime("%Y-%m-%d %H:%M")
-    fresh = update_prices(download=not stichtag)
-    if not fresh and not (PROT_DIR / "start.json").exists() and not restart:
-        raise SystemExit("Kein Protokoll angelegt, weil die Kurse nicht aktuell sind (Yahoo nicht erreichbar). "
-                         "Der naechste Lauf versucht es erneut.")
+    fresh = update_prices(download=not cutoff)
+    if not fresh and not (PROTOCOL_DIR / "start.json").exists() and not restart:
+        raise SystemExit("No protocol created because the prices are not up to date (Yahoo not reachable). "
+                         "The next run tries again.")
     m = load_market()
-    if stichtag:
-        cut = m["close"].index <= pd.Timestamp(stichtag)
+    if cutoff:
+        cut = m["close"].index <= pd.Timestamp(cutoff)
         for k in ("close", "elig", "turnover", "volume"):
             m[k] = m[k][cut]
         if m.get("bench") is not None:
@@ -383,60 +383,60 @@ def run_protocol(restart: bool, stichtag: str | None) -> None:
     n = len(cal)
 
     # ---- start: freeze or compare settings
-    if restart and PROT_DIR.exists():
-        target = BASE_DIR / f"protokoll_alt_{time.strftime('%Y%m%d_%H%M%S')}"
-        shutil.move(str(PROT_DIR), str(target))
-        log(f"Bisheriges Protokoll archiviert in {target.name}")
-    sp = PROT_DIR / "start.json"
+    if restart and PROTOCOL_DIR.exists():
+        target = BASE_DIR / f"protocol_old_{time.strftime('%Y%m%d_%H%M%S')}"
+        shutil.move(str(PROTOCOL_DIR), str(target))
+        log(f"Previous protocol archived in {target.name}")
+    sp = PROTOCOL_DIR / "start.json"
     if not sp.exists():
-        PROT_DIR.mkdir(exist_ok=True)
-        start = {"starttag": f"{last:%Y-%m-%d}", "angelegt_am": now, "einstellungen": frozen_settings(),
-                 "aktien": list(cols),
-                 "annahmen_zur_information": {"kosten": tm.broker_text(), "SLIPPAGE_BPS": tm.SLIPPAGE_BPS},
-                 "hinweis": "Starttag = letzter Kurstag beim Anlegen. Gewertet werden Signale ab seinem Schlusskurs; "
-                            "gekauft wird fruehestens am naechsten Handelstag."}
+        PROTOCOL_DIR.mkdir(exist_ok=True)
+        start = {"start_day": f"{last:%Y-%m-%d}", "created_on": now, "settings": frozen_settings(),
+                 "stocks": list(cols),
+                 "assumptions_for_information": {"costs": tm.broker_text(), "SLIPPAGE_BPS": tm.SLIPPAGE_BPS},
+                 "note": "Start day = last price day at creation. Signals from its closing price on are counted; "
+                            "purchases are made on the next trading day at the earliest."}
         sp.write_text(json.dumps(start, indent=2, ensure_ascii=False), encoding="utf-8")
-        log(f"Protokoll angelegt. Starttag {last:%d.%m.%Y}, Einstellungen eingefroren in protokoll/start.json")
+        log(f"Protocol created. Start day {last:%d.%m.%Y}, settings frozen in protocol/start.json")
     else:
         start = json.loads(sp.read_text(encoding="utf-8"))
         cur = json.loads(json.dumps(frozen_settings()))
-        diff = [k for k in sorted(set(start["einstellungen"]) | set(cur)) if start["einstellungen"].get(k) != cur.get(k)]
+        diff = [k for k in sorted(set(start["settings"]) | set(cur)) if start["settings"].get(k) != cur.get(k)]
         if diff:
-            raise SystemExit("Die Einstellungen weichen vom eingefrorenen Stand des Protokolls ab: " + ", ".join(diff)
-                             + "\nEinstellungen zuruecksetzen (siehe protokoll/start.json) oder mit\n"
-                               "    ..\\.venv\\python.exe trend_protokoll.py --protokoll-neu\nneu beginnen "
-                               "(das alte Protokoll wird archiviert).")
-    start_day = pd.Timestamp(start["starttag"])
+            raise SystemExit("The settings differ from the frozen state of the protocol: " + ", ".join(diff)
+                             + "\nReset the settings (see protocol/start.json) or run\n"
+                               "    ..\\.venv\\python.exe trend_protocol.py --protocol-new\nto start anew "
+                               "(the old protocol is archived).")
+    start_day = pd.Timestamp(start["start_day"])
     if start_day not in cal:
-        raise SystemExit(f"Der Starttag {start_day:%d.%m.%Y} fehlt in den Kursen.")
+        raise SystemExit(f"The start day {start_day:%d.%m.%Y} is missing in the prices.")
     s0 = int(cal.get_loc(start_day))
     n_days = n - 1 - s0
 
-    # ---- purchases that could not be executed (ausfuehrungen.csv, column 'ausfuehrbar' = nein)
-    fills_path = PROT_DIR / "ausfuehrungen.csv"
-    fcols = ["datum", "strategie", "aktie", "name", "order", "seite", "grund", "stueck", "modellkurs", "gebuehr_eur",
-             "slippage_eur", "realer_kurs", "abweichung_bp", "ausfuehrbar"]
+    # ---- purchases that could not be executed (executions.csv, column 'executable' = no)
+    fills_path = PROTOCOL_DIR / "executions.csv"
+    fcols = ["date", "strategy", "stock", "name", "order", "side", "reason", "shares", "model_price", "fee_eur",
+             "slippage_eur", "real_price", "deviation_bp", "executable"]
     old_fills, skip = None, set()
     if fills_path.exists():
         old_fills = read_semicolon_csv(fills_path)
         for c in fcols:
             if c not in old_fills.columns:
-                old_fills[c] = "ja" if c == "ausfuehrbar" else ""
-        old_fills["datum"] = parse_dates(old_fills["datum"]).dt.strftime("%Y-%m-%d")
-        no = old_fills["ausfuehrbar"].astype(str).str.strip().str.lower().str.startswith("n")
-        buy = old_fills["order"] == "kaufen"
-        skip = set(zip(old_fills.loc[no & buy, "strategie"], old_fills.loc[no & buy, "aktie"],
-                       old_fills.loc[no & buy, "datum"]))
+                old_fills[c] = "yes" if c == "executable" else ""
+        old_fills["date"] = parse_dates(old_fills["date"]).dt.strftime("%Y-%m-%d")
+        no = old_fills["executable"].astype(str).str.strip().str.lower().str.startswith("n")
+        buy = old_fills["order"] == "buy"
+        skip = set(zip(old_fills.loc[no & buy, "strategy"], old_fills.loc[no & buy, "stock"],
+                       old_fills.loc[no & buy, "date"]))
 
     # ---- calculate both accounts
     P = m["close"].ffill().to_numpy()
     mom = P / np.vstack([np.full((126, P.shape[1]), np.nan), P[:-126]]) - 1
     accts, clean, signals_today, order_rows, pos_rows, log_rows = {}, {}, {}, [], [], []
-    nxt = next_session(last, bool(stichtag))
-    for name, (entry, exit_name) in STRATEGIEN.items():
+    nxt = next_session(last, bool(cutoff))
+    for name, (entry, exit_name) in STRATEGIES.items():
         tr, ev = build_trades(m, entry, exit_name, s0)
-        rule = tc.AUSSTIEGE[exit_name]
-        hold = rule.get("tage", tc.MAX_HALTEDAUER)
+        rule = tc.EXIT_RULES[exit_name]
+        hold = rule.get("days", tc.MAX_HOLDING_DAYS)
         acct = run_account(m, tr, s0, None, name, hold)
         accts[name] = acct
         if any(s[0] == name for s in skip):
@@ -449,16 +449,16 @@ def run_protocol(restart: bool, stichtag: str | None) -> None:
             line = None
             if rule.get("pct"):
                 line = float(np.nanmax(seg)) * (1 - rule["pct"])
-            planned = q["e"] + rule["tage"] if rule.get("tage") else q["e"] + tc.MAX_HALTEDAUER
-            row = {"strategie": name, "aktie": cols[j], "name": names.get(cols[j], ""), "stueck": q["shares"],
-                   "kauf": f"{cal[q['e']]:%Y-%m-%d}", "kaufkurs": round(q["pe"], 4), "kurs": round(P[n - 1, j], 4),
-                   "wert_eur": round(q["shares"] * P[n - 1, j], 2),
-                   "ergebnis_pct": round((P[n - 1, j] / q["pe"] - 1) * 100, 2),
-                   "gehalten_tage": n - 1 - q["e"], "verkauf_spaetestens": f"{nxt + pd.offsets.BDay(max(planned - n, 0)):%Y-%m-%d}",
-                   "stopp_linie": round(line, 4) if line else ""}
+            planned = q["e"] + rule["days"] if rule.get("days") else q["e"] + tc.MAX_HOLDING_DAYS
+            row = {"strategy": name, "stock": cols[j], "name": names.get(cols[j], ""), "shares": q["shares"],
+                   "purchase": f"{cal[q['e']]:%Y-%m-%d}", "buy_price": round(q["pe"], 4), "kurs": round(P[n - 1, j], 4),
+                   "value_eur": round(q["shares"] * P[n - 1, j], 2),
+                   "result_pct": round((P[n - 1, j] / q["pe"] - 1) * 100, 2),
+                   "held_days": n - 1 - q["e"], "sale_at_latest": f"{nxt + pd.offsets.BDay(max(planned - n, 0)):%Y-%m-%d}",
+                   "stop_line": round(line, 4) if line else ""}
             pos_rows.append(row)
             if planned <= n:
-                sells.append((j, q, f"Haltedauer {rule.get('tage', tc.MAX_HALTEDAUER)} Tage erreicht"))
+                sells.append((j, q, f"holding period {rule.get('days', tc.MAX_HOLDING_DAYS)} days reached"))
             elif line:
                 stops.append((j, q, line))
         # new signals at the last closing price
@@ -481,93 +481,93 @@ def run_protocol(restart: bool, stichtag: str | None) -> None:
             waiting.append(j)
         signals_today[name] = {"buys": buys, "sells": sells, "stops": stops, "waiting": waiting}
         for j, sh in buys:
-            order_rows.append({"fuer_tag": f"{nxt:%Y-%m-%d}", "strategie": name, "order": "kaufen", "aktie": cols[j],
-                               "name": names.get(cols[j], ""), "stueck_ca": sh, "schluss_vortag": round(P[n - 1, j], 4),
-                               "hinweis": "Xetra-Schlussauktion"})
+            order_rows.append({"for_day": f"{nxt:%Y-%m-%d}", "strategy": name, "order": "buy", "stock": cols[j],
+                               "name": names.get(cols[j], ""), "shares_approx": sh, "close_previous_day": round(P[n - 1, j], 4),
+                               "note": "Xetra closing auction"})
         for j, q, why in sells:
-            order_rows.append({"fuer_tag": f"{nxt:%Y-%m-%d}", "strategie": name, "order": "verkaufen", "aktie": cols[j],
-                               "name": names.get(cols[j], ""), "stueck_ca": q["shares"],
-                               "schluss_vortag": round(P[n - 1, j], 4), "hinweis": why})
+            order_rows.append({"for_day": f"{nxt:%Y-%m-%d}", "strategy": name, "order": "sell", "stock": cols[j],
+                               "name": names.get(cols[j], ""), "shares_approx": q["shares"],
+                               "close_previous_day": round(P[n - 1, j], 4), "note": why})
         for j, q, line in stops:
-            order_rows.append({"fuer_tag": f"{nxt:%Y-%m-%d}", "strategie": name, "order": "verkaufen, falls Schluss <= Linie",
-                               "aktie": cols[j], "name": names.get(cols[j], ""), "stueck_ca": q["shares"],
-                               "schluss_vortag": round(P[n - 1, j], 4), "hinweis": f"Stopp-Linie {line:.4f}"})
-        # daily status for protokoll.csv
+            order_rows.append({"for_day": f"{nxt:%Y-%m-%d}", "strategy": name, "order": "sell if close <= line",
+                               "stock": cols[j], "name": names.get(cols[j], ""), "shares_approx": q["shares"],
+                               "close_previous_day": round(P[n - 1, j], 4), "note": f"Stop line {line:.4f}"})
+        # daily status for protocol.csv
         eq, inv, npos = acct["equity"], acct["invested"], acct["npos"]
         for t in range(1, len(eq)):
             day = eq.index[t]
-            log_rows.append({"protokolliert_am": now, "kursdatum": f"{day:%Y-%m-%d}",
-                             "nachgetragen": "ja" if day < last else "nein", "strategie": name,
-                             "konto_eur": round(float(eq.iloc[t]), 2), "investiert_eur": round(float(inv.iloc[t]), 2),
-                             "positionen": int(npos.iloc[t]),
-                             "tagesrendite": round(float(eq.iloc[t] / eq.iloc[t - 1] - 1), 6)})
+            log_rows.append({"logged_on": now, "price_date": f"{day:%Y-%m-%d}",
+                             "added_later": "yes" if day < last else "no", "strategy": name,
+                             "account_eur": round(float(eq.iloc[t]), 2), "invested_eur": round(float(inv.iloc[t]), 2),
+                             "positions_n": int(npos.iloc[t]),
+                             "daily_return": round(float(eq.iloc[t] / eq.iloc[t - 1] - 1), 6)})
 
     # ---- benchmarks since the start day
     pf = m["close"].ffill()
     ew_r = pf.pct_change().where(m["elig"].shift(1, fill_value=False)).mean(axis=1).fillna(0)
-    ew_seit = ew_r.iloc[s0:].copy()
-    ew_seit.iloc[0] = 0.0                                   # start day = initial value
-    bench_curves = {"Aktien gleichgewichtet": CAPITAL * (1 + ew_seit).cumprod()}
+    ew_since = ew_r.iloc[s0:].copy()
+    ew_since.iloc[0] = 0.0                                   # start day = initial value
+    bench_curves = {"Stocks equal-weighted": CAPITAL * (1 + ew_since).cumprod()}
     if m.get("bench") is not None:
         b = m["bench"].iloc[s0:].ffill()
         if b.notna().all() and len(b):
             bench_curves["DAX (EXS1.DE)"] = CAPITAL * b / b.iloc[0]
 
-    # ---- protokoll.csv: only append new rows
-    log_path = PROT_DIR / "protokoll.csv"
+    # ---- protocol.csv: only append new rows
+    log_path = PROTOCOL_DIR / "protocol.csv"
     new_log = pd.DataFrame(log_rows)
     n_new, late = 0, False
     if len(new_log):
         known = set()
         if log_path.exists():
             old = read_semicolon_csv(log_path)
-            known = set(zip(parse_dates(old["kursdatum"]).dt.strftime("%Y-%m-%d"), old["strategie"]))
-        add = new_log[[(d, s) not in known for d, s in zip(new_log["kursdatum"], new_log["strategie"])]]
-        n_new, late = len(add), bool((add["nachgetragen"] == "ja").any())
+            known = set(zip(parse_dates(old["price_date"]).dt.strftime("%Y-%m-%d"), old["strategy"]))
+        add = new_log[[(d, s) not in known for d, s in zip(new_log["price_date"], new_log["strategy"])]]
+        n_new, late = len(add), bool((add["added_later"] == "yes").any())
         if n_new:
             try:
                 add.to_csv(log_path, sep=";", decimal=",", index=False, mode="a", header=not log_path.exists(),
                            encoding="utf-8-sig" if not log_path.exists() else "utf-8")
             except PermissionError:
                 n_new = 0
-                log("protokoll.csv ist gesperrt (in Excel offen?) - die Zeilen werden beim naechsten Lauf nachgetragen")
+                log("protocol.csv is locked (open in Excel?) - the rows will be added on the next run")
 
-    # ---- ausfuehrungen.csv: add new orders, keep entered real prices
+    # ---- executions.csv: add new orders, keep entered real prices
     fills = pd.DataFrame([f for a in accts.values() for f in a["fills"]])
     if len(fills):
-        fills["name"] = fills["aktie"].map(names).fillna("")
-        fills["realer_kurs"], fills["abweichung_bp"], fills["ausfuehrbar"] = "", "", "ja"
+        fills["name"] = fills["stock"].map(names).fillna("")
+        fills["real_price"], fills["deviation_bp"], fills["executable"] = "", "", "yes"
         fills = fills[fcols]
     else:
         fills = pd.DataFrame(columns=fcols)
     if old_fills is not None:
-        key_old = set(zip(old_fills["datum"], old_fills["strategie"], old_fills["aktie"], old_fills["order"]))
+        key_old = set(zip(old_fills["date"], old_fills["strategy"], old_fills["stock"], old_fills["order"]))
         fills = fills[[(d, s, a, o) not in key_old for d, s, a, o in
-                       zip(fills["datum"], fills["strategie"], fills["aktie"], fills["order"])]]
+                       zip(fills["date"], fills["strategy"], fills["stock"], fills["order"])]]
         fills = pd.concat([old_fills[fcols], fills], ignore_index=True)
-    for c in ("stueck", "gebuehr_eur", "slippage_eur"):     # old rows come from the file as text
+    for c in ("shares", "fee_eur", "slippage_eur"):     # old rows come from the file as text
         fills[c] = to_float(fills[c])
-    fills["stueck"] = fills["stueck"].round().astype("Int64")
-    real, model = to_float(fills["realer_kurs"]), to_float(fills["modellkurs"])
-    fills["abweichung_bp"] = pd.Series(np.where(fills["seite"] == "kauf", real / model - 1, 1 - real / model) * 1e4,
+    fills["shares"] = fills["shares"].round().astype("Int64")
+    real, model = to_float(fills["real_price"]), to_float(fills["model_price"])
+    fills["deviation_bp"] = pd.Series(np.where(fills["side"] == "purchase", real / model - 1, 1 - real / model) * 1e4,
                                        index=fills.index).round(1)
-    fills["realer_kurs"], fills["modellkurs"] = real, model
-    fills = fills.sort_values(["datum", "strategie", "aktie"]).reset_index(drop=True)
-    PROT_DIR.mkdir(exist_ok=True)
+    fills["real_price"], fills["model_price"] = real, model
+    fills = fills.sort_values(["date", "strategy", "stock"]).reset_index(drop=True)
+    PROTOCOL_DIR.mkdir(exist_ok=True)
     try:
         fills.to_csv(fills_path, sep=";", decimal=",", index=False, encoding="utf-8-sig")
     except PermissionError:
-        log("ausfuehrungen.csv ist gesperrt (in Excel offen?) - neue Orders werden beim naechsten Lauf ergaenzt")
-    measured = fills["abweichung_bp"].dropna()
+        log("executions.csv is locked (open in Excel?) - new orders will be added on the next run")
+    measured = fills["deviation_bp"].dropna()
 
     # ---- result files
-    daily = pd.DataFrame({f"konto_{k}": a["equity"].round(2) for k, a in accts.items()})
+    daily = pd.DataFrame({f"account_{k}": a["equity"].round(2) for k, a in accts.items()})
     for k, c in bench_curves.items():
-        daily[f"vergleich_{k}"] = c.reindex(daily.index).round(2)
-    save_csv(daily.rename_axis("datum"), "ergebnisse.csv", index=True)
-    save_csv(pd.DataFrame(pos_rows), "positionen.csv")
+        daily[f"comparison_{k}"] = c.reindex(daily.index).round(2)
+    save_csv(daily.rename_axis("date"), "results.csv", index=True)
+    save_csv(pd.DataFrame(pos_rows), "positions.csv")
     save_csv(pd.concat([a["closed"] for a in accts.values()], ignore_index=True), "trades.csv")
-    save_csv(pd.DataFrame(order_rows), "orders_heute.csv")
+    save_csv(pd.DataFrame(order_rows), "orders_today.csv")
 
     report(accts, clean, signals_today, bench_curves, start, start_day, last, nxt, n_days, names, cols, P, n,
            measured, n_new, late)
@@ -577,116 +577,116 @@ def report(accts, clean, sig, bench_curves, start, start_day, last, nxt, n_days,
            n_new, late) -> None:
     print()
     print("=" * 100)
-    print(f"TREND-PROTOKOLL (Paper Trading)  -  Robust 1 und Robust 2, je {eur(CAPITAL)} EUR, ohne Hebel  -  "
-          f"Kurse bis {last:%d.%m.%Y}")
+    print(f"TREND PROTOCOL (paper trading)  -  Robust 1 and Robust 2, each {eur(CAPITAL)} EUR, without leverage  -  "
+          f"prices up to {last:%d.%m.%Y}")
     print("=" * 100)
-    print(f"Starttag {start_day:%d.%m.%Y} (angelegt am {start['angelegt_am']}), Einstellungen unveraendert. "
-          f"Kosten: {tm.broker_text()}, Slippage {tm.SLIPPAGE_BPS} bp")
-    for k in STRATEGIEN:
-        print(f"    {k}: {BESCHREIBUNG[k]}")
-    print(f"\nORDERS FUER {WOCHENTAG[nxt.weekday()]} {nxt:%d.%m.%Y} - Xetra-Schlussauktion (Order bis 17:30 Uhr):")
+    print(f"Start day {start_day:%d.%m.%Y} (created on {start['created_on']}), settings unchanged. "
+          f"Costs: {tm.broker_text()}, slippage {tm.SLIPPAGE_BPS} bp")
+    for k in STRATEGIES:
+        print(f"    {k}: {DESCRIPTION[k]}")
+    print(f"\nORDERS FOR {WEEKDAY[nxt.weekday()]} {nxt:%d.%m.%Y} - Xetra closing auction (order by 17:30):")
     any_order = False
     for k, s in sig.items():
         print(f"  {k}:")
         if not (s["buys"] or s["sells"]):
-            print("      keine Kaeufe oder Verkaeufe")
+            print("      no purchases or sales")
         for j, q, why in s["sells"]:
             any_order = True
-            print(f"    VERKAUFEN {cols[j]:<9} {str(names.get(cols[j], ''))[:30]:<31} {q['shares']:>6} Stueck   "
-                  f"({why}; Schluss zuletzt {num(P[n - 1, j])} EUR, seit Kauf {P[n - 1, j] / q['pe'] - 1:+.1%})")
+            print(f"    SELL      {cols[j]:<9} {str(names.get(cols[j], ''))[:30]:<31} {q['shares']:>6} shares   "
+                  f"({why}; last close {num(P[n - 1, j])} EUR, since purchase {P[n - 1, j] / q['pe'] - 1:+.1%})")
         for j, sh in s["buys"]:
             any_order = True
-            print(f"    KAUFEN    {cols[j]:<9} {str(names.get(cols[j], ''))[:30]:<31} {sh:>6} Stueck ca. "
-                  f"(ca. {eur(sh * P[n - 1, j])} EUR, Schluss zuletzt {num(P[n - 1, j])} EUR)")
+            print(f"    BUY       {cols[j]:<9} {str(names.get(cols[j], ''))[:30]:<31} {sh:>6} shares approx. "
+                  f"(approx. {eur(sh * P[n - 1, j])} EUR, last close {num(P[n - 1, j])} EUR)")
         if s["waiting"]:
-            print(f"      weitere Signale ohne freien Platz: "
+            print(f"      further signals without a free slot: "
                   + ", ".join(cols[j] for j in s["waiting"][:8]) + (" ..." if len(s["waiting"]) > 8 else ""))
         if s["stops"]:
-            print(f"      Stopp-Linien (verkaufen, falls der Kurs kurz vor 17:30 Uhr darunter liegt):")
+            print(f"      stop lines (sell if the price is below them shortly before 17:30):")
             for j, q, line in sorted(s["stops"], key=lambda x: P[n - 1, x[0]] / x[2]):
-                print(f"        {cols[j]:<9} {str(names.get(cols[j], ''))[:30]:<31} Linie {num(line):>10} EUR   "
-                      f"Schluss zuletzt {num(P[n - 1, j]):>10} EUR  (Abstand {line / P[n - 1, j] - 1:+.1%})")
+                print(f"        {cols[j]:<9} {str(names.get(cols[j], ''))[:30]:<31} line {num(line):>10} EUR   "
+                      f"last close {num(P[n - 1, j]):>10} EUR  (distance {line / P[n - 1, j] - 1:+.1%})")
     if not any_order:
-        print("    -> heute keine Orders")
+        print("    -> no orders today")
 
-    print(f"\nKONTEN SEIT START ({n_days} Handelstage)")
+    print(f"\nACCOUNTS SINCE START ({n_days} trading days)")
     rows = []
     for k, a in accts.items():
         kp = kpis(a["equity"])
         cl = a["closed"]
-        rows.append((k, kp, len(a["positions"]), len(cl), int((cl["ergebnis_eur"] > 0).sum()) if len(cl) else 0,
+        rows.append((k, kp, len(a["positions"]), len(cl), int((cl["result_eur"] > 0).sum()) if len(cl) else 0,
                      a["fees"], a["slippage"]))
-    print(f"    {'':<36}{'Konto EUR':>12}{'Rendite':>10}{'gr. Rueckgang':>15}{'Sharpe':>8}{'Positionen':>12}"
-          f"{'Trades':>8}{'Gewinner':>10}{'Gebuehren':>11}{'Slippage':>10}")
+    print(f"    {'':<36}{'Account EUR':>12}{'Return':>10}{'max. DD':>15}{'Sharpe':>8}{'Positions':>12}"
+          f"{'Trades':>8}{'Winners':>10}{'Fees':>11}{'Slippage':>10}")
     for k, kp, npos, ntr, nwin, fees, sl in rows:
         sh = f"{kp['sharpe']:.2f}" if np.isfinite(kp["sharpe"]) else "-"
-        print(f"    {k:<36}{eur(kp['stand']):>12}{kp['rendite']:>+10.2%}{kp['max_dd']:>15.2%}{sh:>8}{npos:>12}"
+        print(f"    {k:<36}{eur(kp['balance']):>12}{kp['return']:>+10.2%}{kp['max_dd']:>15.2%}{sh:>8}{npos:>12}"
               f"{ntr:>8}{nwin:>10}{num(fees):>11}{num(sl):>10}")
     for k, c in bench_curves.items():
         if len(c.dropna()) > 1:
             kp = kpis(c)
             sh = f"{kp['sharpe']:.2f}" if np.isfinite(kp["sharpe"]) else "-"
-            print(f"    {'Vergleich: ' + k:<36}{eur(kp['stand']):>12}{kp['rendite']:>+10.2%}{kp['max_dd']:>15.2%}{sh:>8}")
+            print(f"    {'Comparison: ' + k:<36}{eur(kp['balance']):>12}{kp['return']:>+10.2%}{kp['max_dd']:>15.2%}{sh:>8}")
     if n_days < MIN_DAYS_FOR_SHARPE:
-        print(f"    Sharpe Ratio erst ab {MIN_DAYS_FOR_SHARPE} Handelstagen (vorher ohne Aussagekraft).")
+        print(f"    Sharpe ratio only from {MIN_DAYS_FOR_SHARPE} trading days on (meaningless before).")
     for k, a in clean.items():
         kp = kpis(a["equity"])
-        print(f"    {k} ohne die als nicht ausfuehrbar markierten Kaeufe: {eur(kp['stand'])} EUR ({kp['rendite']:+.2%})")
+        print(f"    {k} without the purchases marked as not executable: {eur(kp['balance'])} EUR ({kp['return']:+.2%})")
 
     for k, a in accts.items():
         if not a["positions"]:
             continue
-        print(f"\nOFFENE POSITIONEN {k}:")
+        print(f"\nOPEN POSITIONS {k}:")
         for j, q in sorted(a["positions"].items(), key=lambda x: x[1]["e"]):
-            print(f"    {cols[j]:<9} {str(names.get(cols[j], ''))[:30]:<31} {q['shares']:>6} Stueck  gekauft "
-                  f"{num(q['pe'])} EUR, jetzt {num(P[n - 1, j])} EUR ({P[n - 1, j] / q['pe'] - 1:+.1%}), "
-                  f"{n - 1 - q['e']} Tage")
-    last_fills = [f for a in accts.values() for f in a["fills"] if f["datum"] == f"{last:%Y-%m-%d}"]
+            print(f"    {cols[j]:<9} {str(names.get(cols[j], ''))[:30]:<31} {q['shares']:>6} shares  bought at "
+                  f"{num(q['pe'])} EUR, now {num(P[n - 1, j])} EUR ({P[n - 1, j] / q['pe'] - 1:+.1%}), "
+                  f"{n - 1 - q['e']} days")
+    last_fills = [f for a in accts.values() for f in a["fills"] if f["date"] == f"{last:%Y-%m-%d}"]
     if last_fills:
-        print(f"\nGEBUCHT AM {last:%d.%m.%Y} (Modell, Schlussauktion):")
+        print(f"\nBOOKED ON {last:%d.%m.%Y} (model, closing auction):")
         for f in last_fills:
-            print(f"    {f['strategie']}: {f['order']} {f['aktie']} {f['stueck']} Stueck zu {num(f['modellkurs'])} EUR"
-                  + (f" ({f['grund']})" if f["order"] == "verkaufen" else ""))
+            print(f"    {f['strategy']}: {f['order']} {f['stock']} {f['shares']} shares at {num(f['model_price'])} EUR"
+                  + (f" ({f['reason']})" if f["order"] == "sell" else ""))
     if len(measured):
-        print(f"\nGemessene Abweichung vom Modellkurs: im Mittel {measured.mean():+.1f} bp je Order ({len(measured)} Kurse; "
-              f"angenommen {tm.SLIPPAGE_BPS} bp). Positiv = schlechter als das Modell.")
+        print(f"\nMeasured deviation from the model price: on average {measured.mean():+.1f} bp per order ({len(measured)} prices; "
+              f"assumed {tm.SLIPPAGE_BPS} bp). Positive = worse than the model.")
     else:
-        print("\nNoch keine realen Kurse eingetragen (protokoll/ausfuehrungen.csv, Spalte 'realer_kurs'; nicht moegliche "
-              "Kaeufe in 'ausfuehrbar' mit 'nein').")
+        print("\nNo real prices entered yet (protocol/executions.csv, column 'real_price'; mark purchases that were not possible "
+              "in 'executable' with 'no').")
     if n_new:
-        print(f"Protokolliert: {n_new} neue Zeilen in protokoll.csv"
-              + (" - darunter nachgetragene Tage" if late else ""))
+        print(f"Logged: {n_new} new rows in protocol.csv"
+              + (" - including days added later" if late else ""))
     elif n_days:
-        print("Protokolliert: nichts Neues (dieser Kurstag steht bereits im Protokoll).")
+        print("Logged: nothing new (this price day is already in the protocol).")
     else:
-        print("Heute ist der Starttag: Gewertet wird ab dem naechsten Handelstag.")
-    print(f"Dateien: {PROT_DIR}  (protokoll.csv, ausfuehrungen.csv, orders_heute.csv, positionen.csv, trades.csv, "
-          "ergebnisse.csv)")
+        print("Today is the start day: counting starts from the next trading day.")
+    print(f"Files: {PROTOCOL_DIR}  (protocol.csv, executions.csv, orders_today.csv, positions.csv, trades.csv, "
+          "results.csv)")
 
 
 # ======================================================================================= Backtest
 def run_backtest() -> None:
-    m = load_market() if KURS_DATEI.exists() else tc.load_data()
+    m = load_market() if PRICE_FILE.exists() else tc.load_data()
     cal = m["close"].index
     s0 = int(np.searchsorted(cal, pd.Timestamp(tc.SIGNAL_START)))
     print("\n" + "=" * 100)
-    print(f"RUECKRECHNUNG ab {cal[s0]:%d.%m.%Y} bis {cal[-1]:%d.%m.%Y}  (Kosten: {tm.broker_text()}, "
-          f"Slippage {tm.SLIPPAGE_BPS} bp)")
+    print(f"BACKTEST from {cal[s0]:%d.%m.%Y} to {cal[-1]:%d.%m.%Y}  (costs: {tm.broker_text()}, "
+          f"slippage {tm.SLIPPAGE_BPS} bp)")
     print("=" * 100)
-    for name, (entry, exit_name) in STRATEGIEN.items():
+    for name, (entry, exit_name) in STRATEGIES.items():
         tr, _ = build_trades(m, entry, exit_name, s0)
-        a = run_account(m, tr, s0, None, name, tc.AUSSTIEGE[exit_name].get("tage", tc.MAX_HALTEDAUER))
+        a = run_account(m, tr, s0, None, name, tc.EXIT_RULES[exit_name].get("days", tc.MAX_HOLDING_DAYS))
         eq = a["equity"]
         kp = kpis(eq)
         yrs = len(eq) / 252
         y = eq.groupby(eq.index.year).last()
         yr = (y / y.shift(1).fillna(eq.iloc[0]) - 1) * 100
-        print(f"\n{name} ({BESCHREIBUNG[name]}):")
-        print(f"    Rendite p. a. {((kp['stand'] / CAPITAL) ** (1 / yrs) - 1):+.1%}, Sharpe {kp['sharpe']:.2f}, "
-              f"groesster Rueckgang {kp['max_dd']:.1%}, Trades {len(a['closed'])}, Gebuehren {eur(a['fees'])} EUR, "
-              f"Slippage {eur(a['slippage'])} EUR")
-        print("    Jahre: " + "  ".join(f"{yy}: {v:+.1f} %" for yy, v in yr.items()))
-    print("\nLaengere Rueckrechnung (ab 2006) und Zufallspruefung: trend_cpo_lang.py --lang, trend_bewertung.py")
+        print(f"\n{name} ({DESCRIPTION[name]}):")
+        print(f"    return p. a. {((kp['balance'] / CAPITAL) ** (1 / yrs) - 1):+.1%}, Sharpe {kp['sharpe']:.2f}, "
+              f"max. drawdown {kp['max_dd']:.1%}, trades {len(a['closed'])}, fees {eur(a['fees'])} EUR, "
+              f"slippage {eur(a['slippage'])} EUR")
+        print("    Years: " + "  ".join(f"{yy}: {v:+.1f} %" for yy, v in yr.items()))
+    print("\nLonger backtest (from 2006) and chance test: trend_cpo_long.py --long, trend_evaluation.py")
 
 
 def main() -> None:
@@ -696,14 +696,14 @@ def main() -> None:
         except Exception:
             pass
     ap = argparse.ArgumentParser(description="Trend following Xetra: Robust 1 and Robust 2 with protocol mode")
-    ap.add_argument("--protokoll", action="store_true", help="protocol mode (paper trading)")
-    ap.add_argument("--protokoll-neu", dest="protokoll_neu", action="store_true", help="start the protocol anew")
-    ap.add_argument("--rueckrechnung", action="store_true", help="backtest of both strategies")
-    ap.add_argument("--stichtag", default=None, help=argparse.SUPPRESS)   # for testing only
+    ap.add_argument("--protocol", action="store_true", help="protocol mode (paper trading)")
+    ap.add_argument("--protocol-new", dest="protocol_new", action="store_true", help="start the protocol anew")
+    ap.add_argument("--backtest", action="store_true", help="backtest of both strategies")
+    ap.add_argument("--cutoff", default=None, help=argparse.SUPPRESS)   # for testing only
     args = ap.parse_args()
-    if args.protokoll or args.protokoll_neu:
-        run_protocol(args.protokoll_neu, args.stichtag)
-    elif args.rueckrechnung:
+    if args.protocol or args.protocol_new:
+        run_protocol(args.protocol_new, args.cutoff)
+    elif args.backtest:
         run_backtest()
     else:
         ap.print_help()
@@ -713,5 +713,5 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except KeyboardInterrupt:
-        print("\nAbgebrochen (Strg+C).")
+        print("\nAborted (Ctrl+C).")
         sys.exit(1)

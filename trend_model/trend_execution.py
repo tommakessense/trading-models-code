@@ -12,7 +12,7 @@ Compared executions (each for purchase AND sale):
   B  opening on the next day      purchase in the opening auction of t+1 (9:00); time exit also at the
                                   opening; stop detected at the closing price -> sale at the next opening
   B+ shortly after the opening    like B, but continuous trading in the first minutes on EIX (at Scalable the
-                                  cheapest venue; wider spreads: higher slippage, SLIP_NACH_EROEFFNUNG)
+                                  cheapest venue; wider spreads: higher slippage, SLIP_AFTER_OPEN)
   C  opening + stop order         like B, but the trailing stop is placed in the market as a real stop order:
                                   if the intraday low falls below the line, sale at the line (with a
                                   downward price gap at the - worse - opening price)
@@ -23,12 +23,12 @@ Additionally: How much do prices move after a signal overnight (close t -> openi
 during the day (opening t+1 -> close t+1)? This decides whether buying earlier helps.
 
 Data: opening, high and low prices are missing in the price cache of the screener. On the first run the script
-loads them with yfinance (like the screener, adjusted for dividends and splits) into pair_screener/cache/ohlc_aktien.pkl
+loads them with yfinance (like the screener, adjusted for dividends and splits) into pair_screener/cache/ohlc_stocks.pkl
 and adjusts them to the closing prices of the cache.
 
-Usage (in the folder trend_model):  ..\\.venv\\python.exe trend_ausfuehrung.py           (first run: download)
-                                    ..\\.venv\\python.exe trend_ausfuehrung.py --neu     reload prices
-Results in ergebnisse_cpo/: ausfuehrung_vergleich.csv, ausfuehrung_nacht_tag.csv, ausfuehrung.png
+Usage (in the folder trend_model):  ..\\.venv\\python.exe trend_execution.py           (first run: download)
+                                    ..\\.venv\\python.exe trend_execution.py --reload  reload prices
+Results in results_cpo/: execution_comparison.csv, execution_night_day.csv, execution.png
 """
 from __future__ import annotations
 
@@ -43,28 +43,28 @@ import trend_cpo as tc
 import trend_model as tm
 
 # ======================================================================================= Settings
-OHLC_FILE = tm.SCREENER_CACHE / "ohlc_aktien.pkl"
+OHLC_FILE = tm.SCREENER_CACHE / "ohlc_stocks.pkl"
 DOWNLOAD_START = "2016-06-01"
 DOWNLOAD_CHUNK = 40
 
-STRATEGIEN = {                   # name: (entry from trend_cpo.EINSTIEGE, exit rule)
-    "Robust 1: Hoch 200 | Zeit 20": ("Hoch 200", {"typ": "zeit", "tage": 20}),
-    "Robust 2: Hoch 50 + Volumenschub | Zeit 60 + Stopp 15%": ("Hoch 50 + Volumenschub",
-                                                              {"typ": "kombi", "tage": 60, "pct": 0.15}),
-    "Hoch 50 + Volumenschub | Zeit 120": ("Hoch 50 + Volumenschub", {"typ": "zeit", "tage": 120}),
-    "Hoch 200 | Nachzug 15%": ("Hoch 200", {"typ": "nachzug", "pct": 0.15}),
+STRATEGIES = {                   # name: (entry from trend_cpo.ENTRY_RULES, exit rule)
+    "Robust 1: High 200 | Time 20": ("High 200", {"exit_kind": "time", "days": 20}),
+    "Robust 2: High 50 + volume surge | Time 60 + stop 15%": ("High 50 + volume surge",
+                                                              {"exit_kind": "combo", "days": 60, "pct": 0.15}),
+    "High 50 + volume surge | Time 120": ("High 50 + volume surge", {"exit_kind": "time", "days": 120}),
+    "High 200 | Trailing 15%": ("High 200", {"exit_kind": "trailing", "pct": 0.15}),
 }
-SLIP_SCHLUSS = 10                # basis points per purchase/sale in the closing auction (as in the trend model)
-SLIP_EROEFFNUNG = 10             # opening auction
-SLIP_NACH_EROEFFNUNG = 20        # continuous trading shortly after 9:00 (spreads wider in the first minutes)
-MODI = {                         # name: (price for purchase, stop type, slippage, trading venue at Scalable)
-    "A Schluss am Folgetag (bisher)": ("schluss_folgetag", "schluss", SLIP_SCHLUSS, "Xetra"),
-    "B Eroeffnung am Folgetag": ("eroeffnung", "naechste_eroeffnung", SLIP_EROEFFNUNG, "Xetra"),
-    "B+ kurz nach Eroeffnung (EIX)": ("eroeffnung", "naechste_eroeffnung", SLIP_NACH_EROEFFNUNG, "EIX"),
-    "C Eroeffnung + Stopp-Order im Markt": ("eroeffnung", "stopp_order", SLIP_EROEFFNUNG, "Xetra"),
-    "D Schluss am Signaltag (Obergrenze)": ("schluss_signaltag", "schluss", SLIP_SCHLUSS, "Xetra"),
+SLIP_CLOSE = 10                # basis points per purchase/sale in the closing auction (as in the trend model)
+SLIP_OPEN = 10             # opening auction
+SLIP_AFTER_OPEN = 20        # continuous trading shortly after 9:00 (spreads wider in the first minutes)
+MODES = {                         # name: (price for purchase, stop type, slippage, trading venue at Scalable)
+    "A close on next day (so far)": ("close_next_day", "close", SLIP_CLOSE, "Xetra"),
+    "B opening on next day": ("open", "next_open", SLIP_OPEN, "Xetra"),
+    "B+ shortly after opening (EIX)": ("open", "next_open", SLIP_AFTER_OPEN, "EIX"),
+    "C opening + stop order in market": ("open", "stop_order", SLIP_OPEN, "Xetra"),
+    "D close on signal day (upper bound)": ("close_signal_day", "close", SLIP_CLOSE, "Xetra"),
 }
-START_DATEN = pd.date_range("2017-10-01", "2023-10-01", freq="6MS")
+START_DATES = pd.date_range("2017-10-01", "2023-10-01", freq="6MS")
 
 
 def log(msg: str) -> None:
@@ -76,7 +76,7 @@ def download_ohlc(tickers: list[str]) -> dict:
     try:
         import yfinance as yf
     except ImportError:
-        raise SystemExit("yfinance fehlt:  ..\\.venv\\python.exe -m pip install yfinance")
+        raise SystemExit("yfinance missing:  ..\\.venv\\python.exe -m pip install yfinance")
     parts = {k: [] for k in ("open", "high", "low", "close")}
     for i in range(0, len(tickers), DOWNLOAD_CHUNK):
         chunk = tickers[i:i + DOWNLOAD_CHUNK]
@@ -87,7 +87,7 @@ def download_ohlc(tickers: list[str]) -> dict:
                 break
             except Exception as e:                          # rate limit or similar
                 wait = 15 * (attempt + 1)
-                log(f"  Download-Fehler ({type(e).__name__}), neuer Versuch in {wait}s")
+                log(f"  Download error ({type(e).__name__}), new attempt in {wait}s")
                 time.sleep(wait)
         else:
             continue
@@ -96,7 +96,7 @@ def download_ohlc(tickers: list[str]) -> dict:
         for k, col in (("open", "Open"), ("high", "High"), ("low", "Low"), ("close", "Close")):
             d = data[col] if isinstance(data.columns, pd.MultiIndex) else data[[col]].set_axis(chunk[:1], axis=1)
             parts[k].append(d)
-        log(f"  Eroeffnungskurse: {min(i + DOWNLOAD_CHUNK, len(tickers))}/{len(tickers)} Aktien")
+        log(f"  Opening prices: {min(i + DOWNLOAD_CHUNK, len(tickers))}/{len(tickers)} stocks")
         time.sleep(1)
     out = {k: pd.concat(v, axis=1) for k, v in parts.items() if v}
     for k in out:
@@ -112,13 +112,13 @@ def load_ohlc(m: dict, refresh: bool) -> dict:
         missing = [t for t in tick if t not in d["close"].columns]
         stale = d["close"].index.max() < m["close"].index.max() - pd.Timedelta(days=5)
         if missing or stale:
-            log(f"Eroeffnungskurse veraltet oder unvollstaendig ({len(missing)} Aktien fehlen) - neu laden")
+            log(f"Opening prices outdated or incomplete ({len(missing)} stocks missing) - reloading")
             d = None
     if d is None:
-        log(f"Lade Eroeffnungs-, Hoch- und Tiefkurse fuer {len(tick)} Aktien (einmalig, einige Minuten) ...")
+        log(f"Loading opening, high and low prices for {len(tick)} stocks (once, a few minutes) ...")
         d = download_ohlc(tick)
         if not d:
-            raise SystemExit("Download fehlgeschlagen - Internetverbindung / yfinance pruefen.")
+            raise SystemExit("Download failed - check internet connection / yfinance.")
         pd.to_pickle(d, OHLC_FILE)
     # adjust to the calendar and the adjustment of the closing prices in the cache
     c = m["close"]
@@ -126,8 +126,8 @@ def load_ohlc(m: dict, refresh: bool) -> dict:
     factor = c / dl_close
     bad = ((factor - 1).abs() > 0.02).sum().sum() / max(factor.notna().sum().sum(), 1)
     if bad > 0.05:
-        log(f"Hinweis: {bad:.0%} der Tage weichen > 2 % von den Cache-Kursen ab (unterschiedliche Bereinigung) - "
-            "werden umgerechnet")
+        log(f"Note: {bad:.0%} of the days deviate > 2 % from the cache prices (different adjustment) - "
+            "they are converted")
     out = {"close": c}
     for k in ("open", "high", "low"):
         x = d[k].reindex(index=c.index, columns=c.columns) * factor
@@ -135,14 +135,14 @@ def load_ohlc(m: dict, refresh: bool) -> dict:
     out["open"] = out["open"].where(out["open"].notna(), c)          # if the opening is missing: closing price
     out["low"] = out["low"].where(out["low"].notna(), np.minimum(out["open"], c))
     cover = d["open"].reindex(index=c.index, columns=c.columns).notna().where(c.notna()).mean().mean()
-    log(f"Eroeffnungskurse vorhanden fuer {cover:.0%} der Kurstage")
+    log(f"Opening prices available for {cover:.0%} of the price days")
     return out
 
 
 # ======================================================================================= Trades
 def trades_for(m: dict, px: dict, entry: str, rule: dict, mode: str, start: pd.Timestamp) -> pd.DataFrame:
     """All possible trades of an entry with purchase/sale price depending on the type of execution."""
-    buy, stop_kind, _, _ = MODI[mode]
+    buy, stop_kind, _, _ = MODES[mode]
     cal = m["close"].index
     n = len(cal)
     C = m["close"].ffill().to_numpy()
@@ -155,53 +155,53 @@ def trades_for(m: dict, px: dict, entry: str, rule: dict, mode: str, start: pd.T
     last = n - 1 - has[::-1].argmax(axis=0)
     rows = []
     for t, j in zip(*np.nonzero(ev)):
-        e = t if buy == "schluss_signaltag" else t + 1
+        e = t if buy == "close_signal_day" else t + 1
         if e > min(n - 1, last[j]):
             continue
-        if buy == "eroeffnung":
+        if buy == "open":
             pe = O[e, j] if np.isfinite(O[e, j]) else C[e, j]
         else:
             pe = C[e, j]
         if not np.isfinite(pe) or pe <= 0:
             continue
-        hold = rule.get("tage")
-        cap = e + (hold if hold else tc.MAX_HALTEDAUER)
+        hold = rule.get("days")
+        cap = e + (hold if hold else tc.MAX_HOLDING_DAYS)
         x, pout, why = None, None, ""
         pct = rule.get("pct")
         if pct:                                             # trailing stop
             hi = pe
-            first_d = e if stop_kind == "stopp_order" else e + 1
+            first_d = e if stop_kind == "stop_order" else e + 1
             for d in range(first_d, min(cap, n - 1) + 1):
-                if stop_kind == "stopp_order":
+                if stop_kind == "stop_order":
                     lvl = hi * (1 - pct)                    # line from the highest close up to the previous day
                     o = O[d, j] if d > e and np.isfinite(O[d, j]) else np.inf
                     if d > e and o <= lvl:
-                        x, pout, why = d, o, "Stopp (Kurslucke)"
+                        x, pout, why = d, o, "Stop (price gap)"
                         break
                     if np.isfinite(L[d, j]) and L[d, j] <= lvl:
-                        x, pout, why = d, lvl, "Stopp"
+                        x, pout, why = d, lvl, "Stop"
                         break
                     hi = max(hi, C[d, j])
                 else:
                     hi = max(hi, C[d, j])
                     if C[d, j] <= hi * (1 - pct):
-                        if stop_kind == "schluss":
-                            x, pout, why = d, C[d, j], "Stopp"
+                        if stop_kind == "close":
+                            x, pout, why = d, C[d, j], "Stop"
                         else:                               # sell only on the next morning
                             x = d + 1
                             pout = (O[x, j] if x <= n - 1 and np.isfinite(O[x, j]) else C[min(x, n - 1), j])
-                            why = "Stopp"
+                            why = "Stop"
                         break
         if x is None:
             x = cap
-            why = "Zeit" if hold else "Hoechstdauer"
+            why = "time" if hold else "Max. duration"
             if x <= n - 1:
-                pout = O[x, j] if (buy == "eroeffnung" and np.isfinite(O[x, j])) else C[x, j]
+                pout = O[x, j] if (buy == "open" and np.isfinite(O[x, j])) else C[x, j]
         if x > n - 1 or x > last[j]:                       # still open: valued at the last closing price
             x = int(min(n - 1, last[j]))
-            pout, why = C[x, j], "offen"
+            pout, why = C[x, j], "open"
         rows.append((j, t, e, x, pe, pout, why, mom[t, j]))
-    return pd.DataFrame(rows, columns=["j", "t_signal", "e", "x", "kurs_ein", "kurs_aus", "grund", "rang"])
+    return pd.DataFrame(rows, columns=["j", "t_signal", "e", "x", "entry_price", "exit_price", "reason", "rank"])
 
 
 def simulate(m: dict, trades: pd.DataFrame, start: pd.Timestamp, slip_bps: float, at_open: bool,
@@ -216,7 +216,7 @@ def simulate(m: dict, trades: pd.DataFrame, start: pd.Timestamp, slip_bps: float
     slip = slip_bps / 1e4
     first = int(np.searchsorted(cal, start))
     by_entry: dict[int, list] = {}
-    for r in trades.sort_values(["e", "rang"], ascending=[True, False]).itertuples(index=False):
+    for r in trades.sort_values(["e", "rank"], ascending=[True, False]).itertuples(index=False):
         by_entry.setdefault(r.e, []).append(r)
     cash, pos = tm.CAPITAL, {}
     equity = np.full(n, np.nan)
@@ -238,19 +238,19 @@ def simulate(m: dict, trades: pd.DataFrame, start: pd.Timestamp, slip_bps: float
                 continue
             eq_ref = eq_prev if at_open else held_now
             target = min(eq_ref / tm.MAX_POSITIONS, cash)
-            shares = int(target // r.kurs_ein)
+            shares = int(target // r.entry_price)
             if shares <= 0:
                 continue
-            alloc = shares * r.kurs_ein
+            alloc = shares * r.entry_price
             cost = fee(alloc, j) + alloc * slip
             if alloc + cost > cash:
                 continue
             cash -= alloc + cost
             if r.x == t:                                    # stopped out on the day of purchase (stop order in the market)
-                value = shares * r.kurs_aus
+                value = shares * r.exit_price
                 cash += value - fee(value, j) - value * slip
                 continue
-            pos[j] = {"x": int(r.x), "shares": shares, "px_out": r.kurs_aus}
+            pos[j] = {"x": int(r.x), "shares": shares, "px_out": r.exit_price}
         equity[t] = cash + sum(q["shares"] * P[t, j] for j, q in pos.items())
         eq_prev = equity[t]
     return pd.Series(equity, index=cal).iloc[first:]
@@ -262,7 +262,7 @@ def stats(eq: pd.Series, a: pd.Timestamp | None = None) -> dict:
         s = s[s.index >= a]
     r = s.pct_change().dropna()
     yrs = len(r) / 252
-    return {"rendite_pa_pct": ((s.iloc[-1] / s.iloc[0]) ** (1 / yrs) - 1) * 100,
+    return {"return_pa_pct": ((s.iloc[-1] / s.iloc[0]) ** (1 / yrs) - 1) * 100,
             "sharpe": r.mean() / r.std() * np.sqrt(252), "max_drawdown_pct": (1 - s / s.cummax()).max() * 100}
 
 
@@ -279,7 +279,7 @@ def overnight_intraday(m: dict, px: dict) -> pd.DataFrame:
     elig = m["elig"].to_numpy()
     rows = []
     real_open = px["open"].ne(m["close"]).to_numpy()        # only days with a real opening
-    for entry in sorted({e for e, _ in STRATEGIEN.values()}):
+    for entry in sorted({e for e, _ in STRATEGIES.values()}):
         ev = tc.entry_signals(m, [entry])[entry].copy()
         ev[cal < start] = False
         ts, js = np.nonzero(ev)
@@ -290,60 +290,60 @@ def overnight_intraday(m: dict, px: dict) -> pd.DataFrame:
             n_ = night[np.clip(tk - 1, 0, len(night) - 1), jk]
             d_ = day[tk, jk]
             msk = real_open[tk, jk] & np.isfinite(n_) & np.isfinite(d_)
-            rows.append({"einstieg": entry, "tag_nach_signal": k, "signale": int(msk.sum()),
-                         "nacht_bp": np.mean(n_[msk]) * 1e4 if k > 0 else np.nan,
-                         "tag_bp": np.mean(d_[msk]) * 1e4,
-                         "nacht_positiv_pct": (n_[msk] > 0).mean() * 100 if k > 0 else np.nan})
+            rows.append({"entry": entry, "day_after_signal": k, "signals": int(msk.sum()),
+                         "night_bp": np.mean(n_[msk]) * 1e4 if k > 0 else np.nan,
+                         "day_bp": np.mean(d_[msk]) * 1e4,
+                         "night_positive_pct": (n_[msk] > 0).mean() * 100 if k > 0 else np.nan})
     # comparison: all tradable stocks on all days
     msk = real_open[1:] & elig[1:] & np.isfinite(night) & np.isfinite(day[1:])
     msk[cal[1:] < start] = False
-    rows.append({"einstieg": "alle Aktien (Vergleich)", "tag_nach_signal": np.nan, "signale": int(msk.sum()),
-                 "nacht_bp": night[msk].mean() * 1e4, "tag_bp": day[1:][msk].mean() * 1e4,
-                 "nacht_positiv_pct": (night[msk] > 0).mean() * 100})
+    rows.append({"entry": "all stocks (comparison)", "day_after_signal": np.nan, "signals": int(msk.sum()),
+                 "night_bp": night[msk].mean() * 1e4, "day_bp": day[1:][msk].mean() * 1e4,
+                 "night_positive_pct": (night[msk] > 0).mean() * 100})
     return pd.DataFrame(rows)
 
 
 # ======================================================================================= Procedure
 def main() -> None:
     ap = argparse.ArgumentParser(description="Execution time for the trend model")
-    ap.add_argument("--neu", action="store_true", help="reload opening prices")
+    ap.add_argument("--reload", action="store_true", help="reload opening prices")
     args = ap.parse_args()
     tm.OUT_DIR = tc.OUT_DIR
     m = tc.load_data()
-    px = load_ohlc(m, args.neu)
+    px = load_ohlc(m, args.reload)
     start = pd.Timestamp(tc.SIGNAL_START)
     test = pd.Timestamp("2023-01-01")
 
-    log("Nacht- und Tagesbewegung nach Signalen ...")
+    log("Night and day moves after signals ...")
     oi = overnight_intraday(m, px)
-    tm.save_csv(oi, "ausfuehrung_nacht_tag.csv")
+    tm.save_csv(oi, "execution_night_day.csv")
 
-    log(f"Portfolio-Rechnung: {len(STRATEGIEN)} Strategien x {len(MODI)} Ausfuehrungen x "
-        f"{len(START_DATEN) + 1} Startzeitpunkte ...")
+    log(f"Portfolio calculation: {len(STRATEGIES)} strategies x {len(MODES)} executions x "
+        f"{len(START_DATES) + 1} start dates ...")
     rows, curves = [], {}
-    for sname, (entry, rule) in STRATEGIEN.items():
-        for mode, (_, _, slip, venue) in MODI.items():
+    for sname, (entry, rule) in STRATEGIES.items():
+        for mode, (_, _, slip, venue) in MODES.items():
             tr = trades_for(m, px, entry, rule, mode, start)
-            at_open = MODI[mode][0] == "eroeffnung"
+            at_open = MODES[mode][0] == "open"
             eq = simulate(m, tr, start, slip, at_open, venue)
             curves[(sname, mode)] = eq
-            r = {"strategie": sname, "ausfuehrung": mode, "trades_moeglich": len(tr)}
-            r.update({f"ab2017_{k}": v for k, v in stats(eq).items()})
+            r = {"strategy": sname, "execution": mode, "trades_possible": len(tr)}
+            r.update({f"from2017_{k}": v for k, v in stats(eq).items()})
             r.update({f"test_{k}": v for k, v in stats(eq, test).items()})
             res = []
-            for s in START_DATEN:                           # robustness against the start date
+            for s in START_DATES:                           # robustness against the start date
                 res.append(stats(simulate(m, tr[tr["e"] >= np.searchsorted(m["close"].index, s)], s, slip, at_open,
                                           venue)))
             d = pd.DataFrame(res)
-            r.update({"starts_rendite_pa_mittel": d["rendite_pa_pct"].mean(), "starts_sharpe_mittel": d["sharpe"].mean(),
-                      "starts_maxdd_mittel": d["max_drawdown_pct"].mean()})
+            r.update({"starts_return_pa_mean": d["return_pa_pct"].mean(), "starts_sharpe_mean": d["sharpe"].mean(),
+                      "starts_maxdd_mean": d["max_drawdown_pct"].mean()})
             if rule.get("pct"):
-                r["anteil_stopp_pct"] = tr["grund"].str.startswith("Stopp").mean() * 100
-                r["anteil_kursluecke_pct"] = (tr["grund"] == "Stopp (Kurslucke)").mean() * 100
+                r["share_stop_pct"] = tr["reason"].str.startswith("Stop").mean() * 100
+                r["share_price_gap_pct"] = (tr["reason"] == "Stop (price gap)").mean() * 100
             rows.append(r)
-        log(f"  {sname} fertig")
+        log(f"  {sname} done")
     res = pd.DataFrame(rows)
-    tm.save_csv(res, "ausfuehrung_vergleich.csv")
+    tm.save_csv(res, "execution_comparison.csv")
     chart(curves)
     report(oi, res)
 
@@ -357,9 +357,9 @@ def chart(curves: dict) -> None:
         return
     names = list(dict.fromkeys(k[0] for k in curves))
     fig, axes = plt.subplots(2, 2, figsize=(16, 9), squeeze=False)
-    colors = dict(zip(MODI, ["#1f77b4", "#d62728", "#ff9896", "#2ca02c", "#7f7f7f"]))
+    colors = dict(zip(MODES, ["#1f77b4", "#d62728", "#ff9896", "#2ca02c", "#7f7f7f"]))
     for ax, nm in zip(axes.ravel(), names):
-        for mode in MODI:
+        for mode in MODES:
             eq = curves[(nm, mode)].dropna()
             ax.plot(eq.index, eq / 1000, label=mode, color=colors[mode], lw=1.4,
                     ls="--" if mode.startswith("D") else "-")
@@ -367,9 +367,9 @@ def chart(curves: dict) -> None:
         ax.set_title(nm, fontsize=10)
         ax.grid(alpha=0.3)
         ax.legend(fontsize=7)
-    fig.suptitle("Ausfuehrungszeitpunkt: Konto in Tsd. EUR (log), ab Sept. 2017")
+    fig.suptitle("Execution time: account in thousand EUR (log), from Sept. 2017")
     fig.tight_layout()
-    fig.savefig(tc.OUT_DIR / "ausfuehrung.png", dpi=110)
+    fig.savefig(tc.OUT_DIR / "execution.png", dpi=110)
     plt.close(fig)
 
 
@@ -377,27 +377,27 @@ def report(oi: pd.DataFrame, res: pd.DataFrame) -> None:
     pd.set_option("display.width", 230)
     pd.set_option("display.max_columns", 30)
     print("\n" + "=" * 120)
-    print("1) KURSBEWEGUNG NACH EINEM SIGNAL (Basispunkte, Mittel; Tag 1 = Kauftag)")
-    print("   nacht = Schluss Vortag -> Eroeffnung, tag = Eroeffnung -> Schluss")
+    print("1) PRICE MOVE AFTER A SIGNAL (basis points, mean; day 1 = purchase day)")
+    print("   night = close previous day -> opening, day = opening -> close")
     print("=" * 120)
     print(oi.round(1).to_string(index=False))
-    print("\nLesart: Ist 'tag' am Kauftag (1) positiv, ist Kauf zur Eroeffnung guenstiger als in der Schlussauktion;")
-    print("ist 'nacht' an Tag 1 deutlich positiv, kostet schon die Nacht nach dem Signal Rendite (dann hilft nur D).")
+    print("\nHow to read: If 'day' is positive on the purchase day (1), buying at the opening is cheaper than in the closing auction;")
+    print("if 'night' is clearly positive on day 1, the night after the signal already costs return (then only D helps).")
     print("\n" + "=" * 120)
-    print(f"2) PORTFOLIO JE AUSFUEHRUNG  (Kosten: {tm.broker_text()})")
+    print(f"2) PORTFOLIO PER EXECUTION  (costs: {tm.broker_text()})")
     print("=" * 120)
-    cols = [c for c in ["strategie", "ausfuehrung", "ab2017_rendite_pa_pct", "ab2017_sharpe", "ab2017_max_drawdown_pct",
-                        "test_rendite_pa_pct", "test_sharpe", "starts_rendite_pa_mittel", "starts_sharpe_mittel",
-                        "starts_maxdd_mittel", "anteil_stopp_pct", "anteil_kursluecke_pct"] if c in res.columns]
-    for s, g in res.groupby("strategie", sort=False):
+    cols = [c for c in ["strategy", "execution", "from2017_return_pa_pct", "from2017_sharpe", "from2017_max_drawdown_pct",
+                        "test_return_pa_pct", "test_sharpe", "starts_return_pa_mean", "starts_sharpe_mean",
+                        "starts_maxdd_mean", "share_stop_pct", "share_price_gap_pct"] if c in res.columns]
+    for s, g in res.groupby("strategy", sort=False):
         print(f"\n{s}")
         print(g[cols[1:]].round(2).to_string(index=False))
-    print(f"\nDateien: {tc.OUT_DIR} (ausfuehrung_*.csv, ausfuehrung.png)")
+    print(f"\nFiles: {tc.OUT_DIR} (execution_*.csv, execution.png)")
 
 
 if __name__ == "__main__":
     try:
         sys.exit(main())
     except KeyboardInterrupt:
-        print("\nAbgebrochen (Strg+C).")
+        print("\nAborted (Ctrl+C).")
         sys.exit(1)

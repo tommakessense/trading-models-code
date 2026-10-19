@@ -2,7 +2,7 @@
 Evaluation of the trend-following variants: winner, plausibility, sources of profit, probability of chance
 ================================================================================================================
 
-Prerequisite: trend_cpo.py has been run (ergebnisse_cpo/raster_kurven.pkl = equity curve of all fixed
+Prerequisite: trend_cpo.py has been run (results_cpo/grid_curves.pkl = equity curve of all fixed
 combinations of entry and exit).
 
 1. Winner    : best Sharpe ratio and highest return over the whole period; in addition the variant that one
@@ -14,8 +14,8 @@ combinations of entry and exit).
                tested variants), bootstrap reality check (White) for the best of all variants,
                each in absolute terms and relative to the equal-weighted stock index.
 
-Usage (in the folder trend_model):  ..\\.venv\\python.exe trend_bewertung.py
-Results in ergebnisse_cpo/: bewertung_*.csv, bewertung.png
+Usage (in the folder trend_model):  ..\\.venv\\python.exe trend_evaluation.py
+Results in results_cpo/: evaluation_*.csv, evaluation.png
 """
 from __future__ import annotations
 
@@ -29,12 +29,12 @@ from scipy.stats import norm
 import trend_cpo as tc
 import trend_model as tm
 
-LERN = (pd.Timestamp(tc.SIGNAL_START), pd.Timestamp("2022-12-31"))
+LEARN = (pd.Timestamp(tc.SIGNAL_START), pd.Timestamp("2022-12-31"))
 TEST = (pd.Timestamp("2023-01-01"), None)
 BOOTSTRAP = 2000
 BLOCK = 20                       # mean block length (trading days) in the stationary bootstrap
 SEED = 3
-START_DATEN = pd.date_range("2017-10-01", "2023-10-01", freq="6MS")   # start dates for the robustness
+START_DATES = pd.date_range("2017-10-01", "2023-10-01", freq="6MS")   # start dates for the robustness
 GAMMA = 0.5772156649             # Euler-Mascheroni constant (expected value of the maximum)
 
 
@@ -55,9 +55,9 @@ def stats(eq: pd.Series, per: tuple, bench_r: pd.Series | None = None) -> dict:
     if len(r) < 60:
         return {}
     yrs = len(r) / 252
-    out = {"rendite_pa_pct": ((s.iloc[-1] / s.iloc[0]) ** (1 / yrs) - 1) * 100,
+    out = {"return_pa_pct": ((s.iloc[-1] / s.iloc[0]) ** (1 / yrs) - 1) * 100,
            "sharpe": r.mean() / r.std() * np.sqrt(252),
-           "schwankung_pct": r.std() * np.sqrt(252) * 100,
+           "volatility_pct": r.std() * np.sqrt(252) * 100,
            "max_drawdown_pct": (1 - s / s.cummax()).max() * 100}
     if bench_r is not None:
         b = bench_r.reindex(r.index).fillna(0)
@@ -137,24 +137,24 @@ def winner_trades(m: dict, entry: str, exit_name: str, exclude: list[str] | None
     if not tl.empty:
         tl["name"] = tl["ticker"].map(m["names"])
         # reason: stop before the end of the holding period or regular
-        tl["art"] = np.where(tl["tage"] < tc.AUSSTIEGE[exit_name].get("tage", 10 ** 6), "Stopp/Trendbruch", "Zeitablauf")
-    return {"equity": sim["equity"], "trades": tl, "signale": len(rows)}
+        tl["kind"] = np.where(tl["days"] < tc.EXIT_RULES[exit_name].get("days", 10 ** 6), "stop/trend break", "time expiry")
+    return {"equity": sim["equity"], "trades": tl, "signals": len(rows)}
 
 
 def trade_profile(tl: pd.DataFrame) -> dict:
-    g = tl["ergebnis_eur"]
+    g = tl["result_eur"]
     win, loss = g[g > 0], g[g <= 0]
     top = g.sort_values(ascending=False)
     n10 = max(1, int(len(g) * 0.1))
-    return {"trades": len(g), "trefferquote_pct": len(win) / len(g) * 100,
-            "mittlerer_gewinn_pct": tl.loc[g > 0, "rendite_pct"].mean(),
-            "mittlerer_verlust_pct": tl.loc[g <= 0, "rendite_pct"].mean(),
-            "gewinn_verlust_verh": tl.loc[g > 0, "rendite_pct"].mean() / -tl.loc[g <= 0, "rendite_pct"].mean(),
-            "profit_faktor": win.sum() / -loss.sum(),
-            "gewinn_gesamt_eur": g.sum(),
-            "anteil_top10pct_trades_am_gewinn_pct": top.iloc[:n10].sum() / g.sum() * 100,
-            "anteil_top10_trades_am_gewinn_pct": top.iloc[:10].sum() / g.sum() * 100,
-            "haltedauer_tage": tl["tage"].mean()}
+    return {"trades": len(g), "hit_rate_pct": len(win) / len(g) * 100,
+            "mean_gain_pct": tl.loc[g > 0, "return_pct"].mean(),
+            "mean_loss_pct": tl.loc[g <= 0, "return_pct"].mean(),
+            "gain_loss_ratio": tl.loc[g > 0, "return_pct"].mean() / -tl.loc[g <= 0, "return_pct"].mean(),
+            "profit_factor": win.sum() / -loss.sum(),
+            "profit_total_eur": g.sum(),
+            "share_top10pct_trades_of_profit_pct": top.iloc[:n10].sum() / g.sum() * 100,
+            "share_top10_trades_of_profit_pct": top.iloc[:10].sum() / g.sum() * 100,
+            "holding_days_mean": tl["days"].mean()}
 
 
 def start_robustness(m: dict) -> pd.DataFrame:
@@ -169,7 +169,7 @@ def start_robustness(m: dict) -> pd.DataFrame:
         st = meta["t_signal"].to_numpy()
         for k, ex in enumerate(tc.EX_NAMES):
             res = []
-            for s in START_DATEN:
+            for s in START_DATES:
                 sel = np.flatnonzero(cal[st] >= s)
                 tr = tc.to_trades(meta, sel, np.full(len(sel), k), mom[st[sel], meta["j"].to_numpy()[sel]])
                 eq = tm.simulate(m, tr, "long", s, with_log=False)["equity"].dropna()
@@ -179,19 +179,19 @@ def start_robustness(m: dict) -> pd.DataFrame:
                             r.mean() / r.std() * np.sqrt(252) if r.std() > 0 else np.nan,
                             (1 - eq / eq.cummax()).max() * 100))
             a = np.array(res)
-            rows.append({"einstieg": en, "ausstieg": ex, "rendite_pa_mittel": a[:, 0].mean(),
-                         "sharpe_mittel": np.nanmean(a[:, 1]), "sharpe_min": np.nanmin(a[:, 1]),
-                         "sharpe_max": np.nanmax(a[:, 1]), "maxdd_mittel": a[:, 2].mean(), "maxdd_max": a[:, 2].max()})
-        log(f"  Startzeitpunkte: {en} fertig")
+            rows.append({"entry": en, "exit": ex, "return_pa_mean": a[:, 0].mean(),
+                         "sharpe_mean": np.nanmean(a[:, 1]), "sharpe_min": np.nanmin(a[:, 1]),
+                         "sharpe_max": np.nanmax(a[:, 1]), "maxdd_mean": a[:, 2].mean(), "maxdd_max": a[:, 2].max()})
+        log(f"  Start dates: {en} done")
     return pd.DataFrame(rows)
 
 
 # ======================================================================================= Procedure
 def main() -> None:
     tm.OUT_DIR = tc.OUT_DIR
-    path = tc.OUT_DIR / "raster_kurven.pkl"
+    path = tc.OUT_DIR / "grid_curves.pkl"
     if not path.exists():
-        raise SystemExit("Bitte zuerst trend_cpo.py rechnen (raster_kurven.pkl fehlt).")
+        raise SystemExit("Please run trend_cpo.py first (grid_curves.pkl missing).")
     curves = pd.read_pickle(path)
     m = tc.load_data()
     cal = m["close"].index
@@ -203,39 +203,39 @@ def main() -> None:
     pf = m["close"].ffill()
     ew_r = pf.pct_change().where(m["elig"].shift(1, fill_value=False)).mean(axis=1).fillna(0)
     ew = tm.CAPITAL * (1 + ew_r[ew_r.index >= start]).cumprod()
-    bench = {"Gleichgewichteter Aktienindex (Universum)": ew}
+    bench = {"Equal-weighted stock index (universe)": ew}
     if m["bench"] is not None:
         b = m["bench"][m["bench"].index >= start].ffill().dropna()
-        bench[f"DAX ({tm.BENCHMARK['aktien']})"] = tm.CAPITAL * b / b.iloc[0]
+        bench[f"DAX ({tm.BENCHMARK['stocks']})"] = tm.CAPITAL * b / b.iloc[0]
     ew_ret = ew.pct_change()
 
     # ---------------- 1. Metrics of all combinations
     rows = []
     for col in curves.columns:
         en, ex = col.split(" | ")
-        r = {"einstieg": en, "ausstieg": ex}
-        for lbl, per in (("gesamt", (start, None)), ("lern", LERN), ("test", TEST)):
+        r = {"entry": en, "exit": ex}
+        for lbl, per in (("total", (start, None)), ("learn", LEARN), ("test", TEST)):
             for k, v in stats(curves[col], per, ew_ret).items():
                 r[f"{lbl}_{k}"] = v
         rows.append(r)
     for name, eq in bench.items():
-        r = {"einstieg": name, "ausstieg": "-"}
-        for lbl, per in (("gesamt", (start, None)), ("lern", LERN), ("test", TEST)):
+        r = {"entry": name, "exit": "-"}
+        for lbl, per in (("total", (start, None)), ("learn", LEARN), ("test", TEST)):
             for k, v in stats(eq, per, ew_ret).items():
                 r[f"{lbl}_{k}"] = v
         rows.append(r)
     allm = pd.DataFrame(rows)
-    tm.save_csv(allm, "bewertung_alle_varianten.csv")
-    strat = allm[allm["ausstieg"] != "-"]
+    tm.save_csv(allm, "evaluation_all_variants.csv")
+    strat = allm[allm["exit"] != "-"]
 
-    log(f"Robustheit: alle Kombinationen ab {len(START_DATEN)} Startzeitpunkten ...")
+    log(f"Robustness: all combinations from {len(START_DATES)} start dates ...")
     robs = start_robustness(m)
-    tm.save_csv(robs, "bewertung_startzeitpunkte.csv")
-    best_sh = strat.sort_values("gesamt_sharpe", ascending=False).iloc[0]
-    best_ret = strat.sort_values("gesamt_rendite_pa_pct", ascending=False).iloc[0]
-    best_lern = strat.sort_values("lern_sharpe", ascending=False).iloc[0]
-    rank_test = int((strat["test_sharpe"] > best_lern["test_sharpe"]).sum()) + 1
-    key = lambda r: f"{r['einstieg']} | {r['ausstieg']}"
+    tm.save_csv(robs, "evaluation_start_dates.csv")
+    best_sh = strat.sort_values("total_sharpe", ascending=False).iloc[0]
+    best_ret = strat.sort_values("total_return_pa_pct", ascending=False).iloc[0]
+    best_learn = strat.sort_values("learn_sharpe", ascending=False).iloc[0]
+    rank_test = int((strat["test_sharpe"] > best_learn["test_sharpe"]).sum()) + 1
+    key = lambda r: f"{r['entry']} | {r['exit']}"
 
     # ---------------- 2. Market conditions per year
     sma200 = pf.rolling(200).mean()
@@ -246,89 +246,89 @@ def main() -> None:
         y = yr(eq)
         return (y / y.shift(1).fillna(cut(eq, (start, None)).iloc[0]) - 1) * 100
     regime = pd.DataFrame({name: yearly(eq) for name, eq in bench.items()})
-    regime["Marktbreite (Anteil ueber 200-Tage-Linie, %)"] = breadth.groupby(breadth.index.year).mean() * 100
-    regime["neue 200-Tage-Hochs je Tag"] = hi200.groupby(hi200.index.year).mean()
-    regime[f"Beste Sharpe: {key(best_sh)}"] = yearly(curves[key(best_sh)])
-    for i, (_, r) in enumerate(robs.sort_values("sharpe_mittel", ascending=False).head(2).iterrows()):
+    regime["Market breadth (share above 200-day MA, %)"] = breadth.groupby(breadth.index.year).mean() * 100
+    regime["new 200-day highs per day"] = hi200.groupby(hi200.index.year).mean()
+    regime[f"Best Sharpe: {key(best_sh)}"] = yearly(curves[key(best_sh)])
+    for i, (_, r) in enumerate(robs.sort_values("sharpe_mean", ascending=False).head(2).iterrows()):
         regime[f"Robust {i + 1}: {key(r)}"] = yearly(curves[key(r)])
     if key(best_ret) != key(best_sh):
-        regime[f"Hoechste Rendite: {key(best_ret)}"] = yearly(curves[key(best_ret)])
+        regime[f"Highest return: {key(best_ret)}"] = yearly(curves[key(best_ret)])
     regime = regime[regime.index >= start.year]
-    tm.save_csv(regime.round(1), "bewertung_marktlage.csv", index=True)
+    tm.save_csv(regime.round(1), "evaluation_market.csv", index=True)
 
     # ---------------- 3. Sources of profit of the winner (best Sharpe) and of the highest return
     profiles, tops, robust = {}, {}, []
-    rob_top = robs.sort_values("sharpe_mittel", ascending=False).head(2)
-    cands = [("Beste Sharpe", best_sh), ("Hoechste Rendite", best_ret)] + \
+    rob_top = robs.sort_values("sharpe_mean", ascending=False).head(2)
+    cands = [("Best Sharpe", best_sh), ("Highest return", best_ret)] + \
             [(f"Robust {i + 1}", r) for i, (_, r) in enumerate(rob_top.iterrows())]
     for label, row in cands:
         k = key(row)
         if k in profiles:
             continue
-        w = winner_trades(m, row["einstieg"], row["ausstieg"])
+        w = winner_trades(m, row["entry"], row["exit"])
         tl = w["trades"]
         profiles[k] = trade_profile(tl)
-        profiles[k].update({f"anteil_{a}_pct": v for a, v in (tl["art"].value_counts(normalize=True) * 100).items()})
-        for a, g in tl.groupby("art"):
-            profiles[k][f"rendite_{a}_pct"] = g["rendite_pct"].mean()
-        by_tick = tl.groupby(["ticker", "name"])["ergebnis_eur"].agg(["sum", "size"]).sort_values("sum", ascending=False)
-        by_tick["anteil_am_gewinn_pct"] = by_tick["sum"] / tl["ergebnis_eur"].sum() * 100
+        profiles[k].update({f"share_{a}_pct": v for a, v in (tl["kind"].value_counts(normalize=True) * 100).items()})
+        for a, g in tl.groupby("kind"):
+            profiles[k][f"return_{a}_pct"] = g["return_pct"].mean()
+        by_tick = tl.groupby(["ticker", "name"])["result_eur"].agg(["sum", "size"]).sort_values("sum", ascending=False)
+        by_tick["share_of_profit_pct"] = by_tick["sum"] / tl["result_eur"].sum() * 100
         tops[k] = by_tick.head(10)
-        tm.save_csv(tl, "bewertung_trades_" + "".join(ch if ch.isalnum() else "_" for ch in k.lower()) + ".csv")
+        tm.save_csv(tl, "evaluation_trades_" + "".join(ch if ch.isalnum() else "_" for ch in k.lower()) + ".csv")
         for n_ex in (0, 3, 5, 10):
             ex = list(by_tick.index.get_level_values(0)[:n_ex])
-            eq = w["equity"] if n_ex == 0 else winner_trades(m, row["einstieg"], row["ausstieg"], ex)["equity"]
+            eq = w["equity"] if n_ex == 0 else winner_trades(m, row["entry"], row["exit"], ex)["equity"]
             s_all, s_test = stats(eq, (start, None)), stats(eq, TEST)
-            robust.append({"variante": k, "ohne_beste_aktien": n_ex, "rendite_pa_pct": s_all["rendite_pa_pct"],
-                           "sharpe": s_all["sharpe"], "test_rendite_pa_pct": s_test["rendite_pa_pct"],
+            robust.append({"variant": k, "without_best_stocks": n_ex, "return_pa_pct": s_all["return_pa_pct"],
+                           "sharpe": s_all["sharpe"], "test_return_pa_pct": s_test["return_pa_pct"],
                            "test_sharpe": s_test["sharpe"], "max_drawdown_pct": s_all["max_drawdown_pct"]})
     prof = pd.DataFrame(profiles).T
-    tm.save_csv(prof, "bewertung_gewinnquellen.csv", index=True)
+    tm.save_csv(prof, "evaluation_profit_sources.csv", index=True)
     rob = pd.DataFrame(robust)
-    tm.save_csv(rob, "bewertung_ohne_beste_aktien.csv")
+    tm.save_csv(rob, "evaluation_without_best_stocks.csv")
 
     # ---------------- 4. Probability of chance
     R_abs = curves.pct_change().iloc[1:].fillna(0)
     R_exc = R_abs.sub(ew_ret.reindex(R_abs.index).fillna(0), axis=0)
-    n_eff = {"absolut": effective_n(R_abs.to_numpy()), "ueber Index": effective_n(R_exc.to_numpy())}
+    n_eff = {"absolute": effective_n(R_abs.to_numpy()), "over index": effective_n(R_exc.to_numpy())}
     rng = np.random.default_rng(SEED)
     stat_rows = []
     rc = {}
-    for lbl, R in (("absolut", R_abs), ("ueber Index", R_exc)):
+    for lbl, R in (("absolute", R_abs), ("over index", R_exc)):
         srs = R.mean() / R.std()
         var_sr = srs.var()
         sr0 = expected_max_sr(var_sr, len(R.columns))
         sr0_eff = expected_max_sr(var_sr, n_eff[lbl])
-        log(f"Reality Check ({lbl}, {BOOTSTRAP} Ziehungen) ...")
+        log(f"Reality Check ({lbl}, {BOOTSTRAP} draws) ...")
         p_rc, mx = reality_check(R.to_numpy(), rng)
         rc[lbl] = (p_rc, mx, srs.max())
-        for name, row in [("Beste Sharpe (gesamt)", best_sh), ("Hoechste Rendite (gesamt)", best_ret)] + \
-                [(f"Robust {i + 1} (Mittel Startzeitpunkte)", r) for i, (_, r) in enumerate(rob_top.iterrows())]:
+        for name, row in [("Best Sharpe (total)", best_sh), ("Highest return (total)", best_ret)] + \
+                [(f"Robust {i + 1} (mean start dates)", r) for i, (_, r) in enumerate(rob_top.iterrows())]:
             r = R[key(row)].to_numpy()
             sr, se, p0 = psr(r, 0.0)
             _, _, d_all = psr(r, sr0)
             _, _, d_eff = psr(r, sr0_eff)
-            stat_rows.append({"variante": f"{name}: {key(row)}", "massstab": lbl, "zeitraum": "gesamt",
-                              "sharpe_pa": sr * np.sqrt(252), "standardfehler_pa": se * np.sqrt(252),
-                              "t_wert": sr / se, "psr_wahre_sharpe_ueber_0": p0,
-                              "varianten": len(R.columns), "effektiv_unabhaengig": n_eff[lbl],
-                              "erwartete_max_sharpe_zufall_pa": sr0 * np.sqrt(252),
-                              "erwartete_max_sharpe_zufall_eff_pa": sr0_eff * np.sqrt(252),
-                              "dsr_alle": d_all, "dsr_effektiv": d_eff, "reality_check_p": p_rc})
+            stat_rows.append({"variant": f"{name}: {key(row)}", "benchmark": lbl, "period": "total",
+                              "sharpe_pa": sr * np.sqrt(252), "standard_error_pa": se * np.sqrt(252),
+                              "t_value": sr / se, "psr_true_sharpe_above_0": p0,
+                              "variants": len(R.columns), "effectively_independent": n_eff[lbl],
+                              "expected_max_sharpe_chance_pa": sr0 * np.sqrt(252),
+                              "expected_max_sharpe_chance_eff_pa": sr0_eff * np.sqrt(252),
+                              "dsr_all": d_all, "dsr_effective": d_eff, "reality_check_p": p_rc})
         # out-of-sample: chosen at the end of 2022, test period only (no selection in the test -> no deflation needed)
-        rt = cut(R[key(best_lern)], TEST).to_numpy()
+        rt = cut(R[key(best_learn)], TEST).to_numpy()
         sr, se, p0 = psr(rt, 0.0)
-        stat_rows.append({"variante": f"Ende 2022 gewaehlt: {key(best_lern)}", "massstab": lbl, "zeitraum": "test",
-                          "sharpe_pa": sr * np.sqrt(252), "standardfehler_pa": se * np.sqrt(252), "t_wert": sr / se,
-                          "psr_wahre_sharpe_ueber_0": p0, "varianten": 1})
+        stat_rows.append({"variant": f"Chosen at end of 2022: {key(best_learn)}", "benchmark": lbl, "period": "test",
+                          "sharpe_pa": sr * np.sqrt(252), "standard_error_pa": se * np.sqrt(252), "t_value": sr / se,
+                          "psr_true_sharpe_above_0": p0, "variants": 1})
     st = pd.DataFrame(stat_rows)
-    tm.save_csv(st, "bewertung_zufall.csv")
+    tm.save_csv(st, "evaluation_chance.csv")
 
-    chart(curves, bench, best_sh, best_ret, best_lern, key, rc, rob_top)
-    report(allm, strat, best_sh, best_ret, best_lern, rank_test, regime, prof, tops, rob, st, key, robs)
+    chart(curves, bench, best_sh, best_ret, best_learn, key, rc, rob_top)
+    report(allm, strat, best_sh, best_ret, best_learn, rank_test, regime, prof, tops, rob, st, key, robs)
 
 
-def chart(curves, bench, best_sh, best_ret, best_lern, key, rc, rob_top) -> None:
+def chart(curves, bench, best_sh, best_ret, best_learn, key, rc, rob_top) -> None:
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -340,9 +340,9 @@ def chart(curves, bench, best_sh, best_ret, best_lern, key, rc, rob_top) -> None
         ax.plot(curves.index, curves[col] / 1000, color="#cccccc", lw=0.4, zorder=1)
     shown = []
     rr = [r for _, r in rob_top.iterrows()]
-    for lbl, row, c in [("Beste Sharpe ab 2017", best_sh, "#d62728"), ("Hoechste Rendite", best_ret, "#ff7f0e"),
-                        ("Ende 2022 gewaehlt", best_lern, "#2ca02c")] + \
-                       [(f"Robust {i + 1} (Startzeitpunkte)", r, c) for i, (r, c) in enumerate(zip(rr, ["#9467bd", "#8c564b"]))]:
+    for lbl, row, c in [("Best Sharpe from 2017", best_sh, "#d62728"), ("Highest return", best_ret, "#ff7f0e"),
+                        ("Chosen at end of 2022", best_learn, "#2ca02c")] + \
+                       [(f"Robust {i + 1} (start dates)", r, c) for i, (r, c) in enumerate(zip(rr, ["#9467bd", "#8c564b"]))]:
         k = key(row)
         if k in shown:
             continue
@@ -351,75 +351,75 @@ def chart(curves, bench, best_sh, best_ret, best_lern, key, rc, rob_top) -> None
     for (name, eq), c in zip(bench.items(), ["#1f77b4", "#555555"]):
         ax.plot(eq.index, eq / 1000, color=c, lw=1.6, ls="--", label=name, zorder=2)
     ax.axvline(TEST[0], color="black", lw=0.8, ls=":")
-    ax.text(TEST[0], ax.get_ylim()[1] if ax.get_yscale() == "linear" else 1, "  Test ab 2023", va="top", fontsize=9)
+    ax.text(TEST[0], ax.get_ylim()[1] if ax.get_yscale() == "linear" else 1, "  Test from 2023", va="top", fontsize=9)
     ax.set_yscale("log")
-    ax.set_title("Alle 270 festen Kombinationen (grau) - Konto in Tsd. EUR (log)")
+    ax.set_title("All 270 fixed combinations (grey) - account in thousand EUR (log)")
     ax.grid(alpha=0.3)
     ax.legend(fontsize=8, loc="upper left")
-    p, mx, real = rc["ueber Index"]
+    p, mx, real = rc["over index"]
     ax2.hist(mx * np.sqrt(252), bins=50, color="#9ecae1")
     ax2.axvline(real * np.sqrt(252), color="#d62728", lw=2)
-    ax2.set_title(f"Reality Check: beste Information Ratio aller Varianten\nim Zufall (blau) vs. echt (rot), p = {p:.2f}")
-    ax2.set_xlabel("hoechste Information Ratio gegenueber dem Aktienindex (p. a.)")
+    ax2.set_title(f"Reality check: best information ratio of all variants\nby chance (blue) vs. real (red), p = {p:.2f}")
+    ax2.set_xlabel("highest information ratio relative to the stock index (p. a.)")
     fig.tight_layout()
-    fig.savefig(tc.OUT_DIR / "bewertung.png", dpi=110)
+    fig.savefig(tc.OUT_DIR / "evaluation.png", dpi=110)
     plt.close(fig)
 
 
-def report(allm, strat, best_sh, best_ret, best_lern, rank_test, regime, prof, tops, rob, st, key, robs) -> None:
+def report(allm, strat, best_sh, best_ret, best_learn, rank_test, regime, prof, tops, rob, st, key, robs) -> None:
     pd.set_option("display.width", 230)
     pd.set_option("display.max_columns", 30)
     pd.set_option("display.max_colwidth", 60)
-    cols = ["einstieg", "ausstieg", "gesamt_rendite_pa_pct", "gesamt_sharpe", "gesamt_max_drawdown_pct",
-            "gesamt_beta", "gesamt_alpha_pa_pct", "lern_sharpe", "test_sharpe", "lern_rendite_pa_pct",
-            "test_rendite_pa_pct"]
+    cols = ["entry", "exit", "total_return_pa_pct", "total_sharpe", "total_max_drawdown_pct",
+            "total_beta", "total_alpha_pa_pct", "learn_sharpe", "test_sharpe", "learn_return_pa_pct",
+            "test_return_pa_pct"]
     print("\n" + "=" * 120)
-    print("1) SIEGER (270 feste Kombinationen, Sept. 2017 bis heute)")
+    print("1) WINNER (270 fixed combinations, Sept. 2017 to today)")
     print("=" * 120)
-    print("\nTop 10 nach Sharpe Ratio (gesamt):")
-    print(strat.sort_values("gesamt_sharpe", ascending=False)[cols].head(10).round(2).to_string(index=False))
-    print("\nTop 10 nach Rendite p. a. (gesamt):")
-    print(strat.sort_values("gesamt_rendite_pa_pct", ascending=False)[cols].head(10).round(2).to_string(index=False))
-    print("\nVergleichsmassstaebe:")
-    print(allm[allm["ausstieg"] == "-"][cols].round(2).to_string(index=False))
-    print(f"\nEnde 2022 (nur mit Lerndaten) gewaehlt: {key(best_lern)} - Lern-Sharpe {best_lern['lern_sharpe']:.2f}, "
-          f"Test-Sharpe {best_lern['test_sharpe']:.2f} (Rang {rank_test} von {len(strat)} im Test)")
-    rc = strat[["lern_sharpe", "test_sharpe"]].corr(method="spearman").iloc[0, 1]
-    print(f"Rangkorrelation Lern- gegen Test-Sharpe ueber alle Kombinationen: {rc:+.2f}")
-    print(f"\nRobustheit ueber {len(START_DATEN)} Startzeitpunkte (halbjaehrlich 2017-2023, jeweils bis heute):")
-    rc_ = ["einstieg", "ausstieg", "rendite_pa_mittel", "sharpe_mittel", "sharpe_min", "sharpe_max", "maxdd_mittel",
+    print("\nTop 10 by Sharpe ratio (total):")
+    print(strat.sort_values("total_sharpe", ascending=False)[cols].head(10).round(2).to_string(index=False))
+    print("\nTop 10 by return p. a. (total):")
+    print(strat.sort_values("total_return_pa_pct", ascending=False)[cols].head(10).round(2).to_string(index=False))
+    print("\nBenchmarks:")
+    print(allm[allm["exit"] == "-"][cols].round(2).to_string(index=False))
+    print(f"\nChosen at end of 2022 (with learning data only): {key(best_learn)} - learning Sharpe {best_learn['learn_sharpe']:.2f}, "
+          f"test Sharpe {best_learn['test_sharpe']:.2f} (rank {rank_test} of {len(strat)} in the test)")
+    rc = strat[["learn_sharpe", "test_sharpe"]].corr(method="spearman").iloc[0, 1]
+    print(f"Rank correlation of learning vs. test Sharpe over all combinations: {rc:+.2f}")
+    print(f"\nRobustness over {len(START_DATES)} start dates (semi-annually 2017-2023, each up to today):")
+    rc_ = ["entry", "exit", "return_pa_mean", "sharpe_mean", "sharpe_min", "sharpe_max", "maxdd_mean",
            "maxdd_max"]
-    print("Top 10 nach mittlerer Sharpe Ratio:")
-    print(robs.sort_values("sharpe_mittel", ascending=False)[rc_].head(10).round(2).to_string(index=False))
-    print("Top 10 nach mittlerer Rendite:")
-    print(robs.sort_values("rendite_pa_mittel", ascending=False)[rc_].head(10).round(2).to_string(index=False))
-    for lbl, row in (("Beste Sharpe ab 2017", best_sh),):
-        rr = robs[(robs["einstieg"] == row["einstieg"]) & (robs["ausstieg"] == row["ausstieg"])]
-        print(f"{lbl} ({key(row)}) ueber alle Startzeitpunkte:")
+    print("Top 10 by mean Sharpe ratio:")
+    print(robs.sort_values("sharpe_mean", ascending=False)[rc_].head(10).round(2).to_string(index=False))
+    print("Top 10 by mean return:")
+    print(robs.sort_values("return_pa_mean", ascending=False)[rc_].head(10).round(2).to_string(index=False))
+    for lbl, row in (("Best Sharpe from 2017", best_sh),):
+        rr = robs[(robs["entry"] == row["entry"]) & (robs["exit"] == row["exit"])]
+        print(f"{lbl} ({key(row)}) over all start dates:")
         print(rr[rc_].round(2).to_string(index=False))
     print("\n" + "=" * 120)
-    print("2) MARKTLAGE JE JAHR (Rendite in %)")
+    print("2) MARKET CONDITIONS PER YEAR (return in %)")
     print("=" * 120)
     print(regime.round(1).to_string())
     print("\n" + "=" * 120)
-    print("3) WIE DER GEWINN ENTSTEHT")
+    print("3) HOW THE PROFIT ARISES")
     print("=" * 120)
     print(prof.T.round(2).to_string())
     for k, t in tops.items():
-        print(f"\nAktien mit dem groessten Gewinnbeitrag - {k}:")
+        print(f"\nStocks with the largest profit contribution - {k}:")
         print(t.round(1).to_string())
-    print("\nErgebnis ohne die Aktien mit dem groessten Gewinnbeitrag:")
+    print("\nResult without the stocks with the largest profit contribution:")
     print(rob.round(2).to_string(index=False))
     print("\n" + "=" * 120)
-    print("4) WAHRSCHEINLICHKEIT FUER ZUFALL")
+    print("4) PROBABILITY OF CHANCE")
     print("=" * 120)
     print(st.round(3).to_string(index=False))
-    print(f"\nDateien: {tc.OUT_DIR} (bewertung_*.csv, bewertung.png)")
+    print(f"\nFiles: {tc.OUT_DIR} (evaluation_*.csv, evaluation.png)")
 
 
 if __name__ == "__main__":
     try:
         sys.exit(main())
     except KeyboardInterrupt:
-        print("\nAbgebrochen (Strg+C).")
+        print("\nAborted (Ctrl+C).")
         sys.exit(1)

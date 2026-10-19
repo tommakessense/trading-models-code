@@ -21,12 +21,12 @@ Additional tests in the trend model:
 |---|---|
 | `trend_model.py` | Backtest of many entry and exit variants, optionally with media echo (GDELT). In addition a placebo test and a test of the survivorship bias with bankruptcy cases. |
 | `trend_cpo.py` | Conditional Parameter Optimization (machine learning for optimizing the individual parameters of the model before each potential trade): walk-forward with gradient boosting, which chooses the exit for each signal. |
-| `cpo_stresstest.py` | CPO against fixed rules in simulated crashes and volatility surges, in order to extend the only limited period of the backtest to more eventualities. |
-| `trend_bewertung.py` | Evaluation of the variants: sources of profit, plausibility, probabilistic and deflated Sharpe ratio, White's Reality Check, dependence on the start date. |
-| `trend_positionsgroesse.py` | Fixed position size (1/10) against a size depending on signal quality (CPO and simple rules). |
-| `trend_ausfuehrung.py` | Execution time in comparison: closing auction or opening of the following day. |
-| `trend_cpo_lang.py` | CPO test with a long price history from 2000 and CPO as an ongoing exit signal. |
-| `trend_protokoll.py` | Protocol mode (paper trading) for Robust 1 and Robust 2. |
+| `cpo_stress_test.py` | CPO against fixed rules in simulated crashes and volatility surges, in order to extend the only limited period of the backtest to more eventualities. |
+| `trend_evaluation.py` | Evaluation of the variants: sources of profit, plausibility, probabilistic and deflated Sharpe ratio, White's Reality Check, dependence on the start date. |
+| `trend_position_size.py` | Fixed position size (1/10) against a size depending on signal quality (CPO and simple rules). |
+| `trend_execution.py` | Execution time in comparison: closing auction or opening of the following day. |
+| `trend_cpo_long.py` | CPO test with a long price history from 2000 and CPO as an ongoing exit signal. |
+| `trend_protocol.py` | Protocol mode (paper trading) for Robust 1 and Robust 2. |
 
 ## Setup
 
@@ -44,14 +44,14 @@ Everyone loads it themselves on the first run.
 # Mean reversion (prices are loaded automatically)
 cd hgv_mgm_model
 python pair_model.py                  # backtest: training, test, basket and individual pairs
-python pair_model.py --protokoll      # paper trading: daily status, orders for the next trading day
+python pair_model.py --protocol       # paper trading: daily status, orders for the next trading day
 
 # Trend following: first load the Xetra prices via the screener
 cd ../pair_screener
-python pair_screener.py               # creates pair_screener/cache/prices_aktien.pkl
+python pair_screener.py               # creates pair_screener/cache/prices_stocks.pkl
 cd ../trend_model
-python trend_model.py --nur-kurse     # backtest without media echo
-python trend_protokoll.py --protokoll # paper trading Robust 1 and Robust 2
+python trend_model.py --prices-only   # backtest without media echo
+python trend_protocol.py --protocol   # paper trading Robust 1 and Robust 2
 ```
 
 Each script describes at the beginning of the file what it calculates, which switches it has and which files it writes.
@@ -59,16 +59,16 @@ Results are CSV files with `;` and decimal comma (for Excel).
 
 ## Protocol mode
 
-On the first call of `--protokoll`, the start day and all settings are recorded in `protokoll/start.json`.
+On the first call of `--protocol`, the start day and all settings are recorded in `protocol/start.json`.
 If a setting is changed afterwards, the protocol aborts with a message so that the
-result is not falsified unnoticed. `protokoll.csv` is only continued, existing rows remain
-unchanged. In `ausfuehrungen.csv` you can enter the prices actually achieved. From this the script measures the
+result is not falsified unnoticed. `protocol.csv` is only continued, existing rows remain
+unchanged. In `executions.csv` you can enter the prices actually achieved. From this the script measures the
 actual slippage.
 
 ## Known limitations
 
 - The prices come from Yahoo Finance: adjusted retroactively for dividends and occasionally corrected afterwards.
-- The universe consists only of securities still listed today (survivorship bias). The trend model can estimate this with `--mit-pleiten`.
+- The universe consists only of securities still listed today (survivorship bias). The trend model can estimate this with `--with-bankruptcies`.
 - Calculations use closing prices instead of bid and ask prices. Slippage is set as a flat rate.
 
 ## License

@@ -2,10 +2,10 @@ __pycache__/
 *.pyc
 .venv/
 # prices, caches and results are created when running the scripts
-*/daten/
-*/daten_start/
+*/data/
+*/data_start/
 */cache/
 */output*/
-*/ergebnisse*/
-*/protokoll/
-trend_model/suchbegriffe.csv
+*/results*/
+*/protocol/
+trend_model/search_terms.csv
